@@ -43,12 +43,20 @@ function readLine(): string | null {
   return decoder.decode(bytes) + '\n';
 }
 
-// Held in a variable so TypeScript treats the import as dynamic rather than
-// trying to resolve a path that only exists at runtime, under public/.
-const PYODIDE_URL = '/pyodide/pyodide.mjs';
+/**
+ * Pyodide is loaded with importScripts, not a dynamic import.
+ *
+ * Vite's dev server rewrites every import() specifier through injectQuery,
+ * appending `?import`, which routes the request into the transform pipeline --
+ * where anything under public/ is rejected outright ("should not be imported
+ * from source code"). @vite-ignore suppresses the bundling, not the rewrite.
+ * importScripts is an ordinary runtime call Vite never touches, and the classic
+ * build Pyodide ships exists for exactly this. It defines loadPyodide globally.
+ */
+declare const loadPyodide: typeof import('pyodide').loadPyodide;
 
 async function boot(msg: Extract<ToWorker, { type: 'init' }>) {
-  const { loadPyodide } = (await import(/* @vite-ignore */ PYODIDE_URL)) as typeof import('pyodide');
+  importScripts('/pyodide/pyodide.js');
 
   const py = await loadPyodide({ indexURL: '/pyodide/' });
   pyodide = py;

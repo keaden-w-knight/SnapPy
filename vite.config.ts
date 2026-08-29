@@ -13,7 +13,9 @@ const crossOriginIsolation = {
 export default defineConfig({
   server: { headers: crossOriginIsolation },
   preview: { headers: crossOriginIsolation },
-  worker: { format: 'es' },
+  // Classic (iife) workers, not ES modules: the Pyodide worker loads the
+  // interpreter with importScripts, which module workers do not provide.
+  worker: { format: 'iife' },
   build: { target: 'es2022' },
   // Pyodide is loaded at runtime from /pyodide/ (see scripts/copy-pyodide.mjs),
   // never bundled -- it resolves its own .wasm and .zip relative to indexURL.
