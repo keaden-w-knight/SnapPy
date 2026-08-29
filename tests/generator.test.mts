@@ -111,6 +111,110 @@ for (const [name, blocks, expected] of cases) {
   check(`${name} -> valid Python`, isValidPython(code));
 }
 
+// --- dropdown-based function call blocks ------------------------------------
+
+const withVar = (blocks: unknown[], variables: unknown[] = []) => {
+  ws.clear();
+  Blockly.serialization.workspaces.load(
+    { variables, blocks: { languageVersion: 0, blocks } } as never, ws);
+  return pythonGenerator.workspaceToCode(ws);
+};
+
+{
+  // A no-argument function, called as a statement.
+  const code = withVar([
+    {
+      type: 'procedures_defnoreturn', x: 0, y: 0,
+      fields: { NAME: 'greet' },
+      inputs: { STACK: { block: { type: 'snappy_print',
+        inputs: { VALUE: text('hi') } } } },
+    },
+    { type: 'snappy_call', x: 0, y: 200, fields: { NAME: 'greet' } },
+  ]);
+  check('statement call generates a call',
+    code.includes('def greet():') && code.includes('greet()'),
+    JSON.stringify(code.trim()));
+  check('statement call -> valid Python', isValidPython(code));
+}
+
+{
+  // A function with a parameter, with a value plugged into the argument socket.
+  const code = withVar(
+    [
+      {
+        type: 'procedures_defnoreturn', x: 0, y: 0,
+        extraState: { params: [{ name: 'who', id: 'whoId' }] },
+        fields: { NAME: 'greet' },
+        inputs: { STACK: { block: { type: 'snappy_print',
+          inputs: { VALUE: text('hi') } } } },
+      },
+      {
+        type: 'snappy_call', x: 0, y: 200,
+        extraState: { params: ['who'] },
+        fields: { NAME: 'greet' },
+        inputs: { ARG0: text('Ada') },
+      },
+    ],
+    [{ name: 'who', id: 'whoId' }],
+  );
+  check('parameters reach the definition and the call',
+    code.includes('def greet(who):') && code.includes("greet('Ada')"),
+    JSON.stringify(code.trim()));
+  check('parameterised call -> valid Python', isValidPython(code));
+}
+
+{
+  // The oval block used inside another block's value input.
+  const code = withVar([
+    {
+      type: 'procedures_defreturn', x: 0, y: 0,
+      fields: { NAME: 'answer' },
+      inputs: { RETURN: numb(42) },
+    },
+    {
+      type: 'snappy_print', x: 0, y: 200,
+      inputs: { VALUE: { block: { type: 'snappy_call_value',
+        fields: { NAME: 'answer' } } } },
+    },
+  ]);
+  check('oval call nests inside a value input',
+    code.includes('print(answer())'), JSON.stringify(code.trim()));
+  check('oval call -> valid Python', isValidPython(code));
+}
+
+{
+  // The oval block inside an operator, which is what "oval inputs" means.
+  const code = withVar([
+    {
+      type: 'procedures_defreturn', x: 0, y: 0,
+      fields: { NAME: 'answer' },
+      inputs: { RETURN: numb(42) },
+    },
+    {
+      type: 'snappy_print', x: 0, y: 200,
+      inputs: { VALUE: { block: { type: 'math_arithmetic', fields: { OP: 'ADD' },
+        inputs: {
+          A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' } } },
+          B: numb(1),
+        } } } },
+    },
+  ]);
+  check('oval call works inside an operator',
+    code.includes('answer() + 1'), JSON.stringify(code.trim()));
+  check('oval call in operator -> valid Python', isValidPython(code));
+}
+
+{
+  // An unset dropdown must still produce something Python can parse.
+  const code = withVar([
+    { type: 'snappy_print', x: 0, y: 0,
+      inputs: { VALUE: { block: { type: 'snappy_call_value' } } } },
+  ]);
+  check('unset oval call falls back to None',
+    code.includes('print(None)'), JSON.stringify(code.trim()));
+  check('unset oval call -> valid Python', isValidPython(code));
+}
+
 // The hat block itself must contribute no code of its own.
 check('hat alone generates nothing',
   gen([{ type: 'snappy_when_run', x: 0, y: 0 }]).trim() === '');
