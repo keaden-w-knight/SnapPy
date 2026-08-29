@@ -19,7 +19,6 @@ if (!existsSync(src)) {
 // Everything Pyodide needs at runtime. The stdlib zip and the packages lockfile
 // are loaded by pyodide.mjs relative to indexURL, so they have to sit alongside it.
 const needed = [
-  'pyodide.js', // classic build, loaded via importScripts -- see pyodide.worker.ts
   'pyodide.mjs',
   'pyodide.asm.js',
   'pyodide.asm.wasm',

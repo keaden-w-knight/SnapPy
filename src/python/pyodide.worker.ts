@@ -44,19 +44,29 @@ function readLine(): string | null {
 }
 
 /**
- * Pyodide is loaded with importScripts, not a dynamic import.
+ * Pyodide has to be fetched raw, and the import has to be built at runtime.
  *
- * Vite's dev server rewrites every import() specifier through injectQuery,
- * appending `?import`, which routes the request into the transform pipeline --
- * where anything under public/ is rejected outright ("should not be imported
- * from source code"). @vite-ignore suppresses the bundling, not the rewrite.
- * importScripts is an ordinary runtime call Vite never touches, and the classic
- * build Pyodide ships exists for exactly this. It defines loadPyodide globally.
+ * Raw, because pyodide.mjs performs a dozen dynamic imports of its own (its
+ * asm.js payload, plus node:fs and friends on the Node path). Letting a bundler
+ * transform it rewrites those and breaks it, so it is served untouched from
+ * public/ and Vite must never treat it as source.
+ *
+ * Built at runtime, because Vite rewrites every import() it can see: in dev it
+ * wraps the specifier in injectQuery, appending `?import`, which routes the
+ * request through the transform pipeline -- where a file under public/ is
+ * rejected outright. Neither @vite-ignore nor an opaque specifier variable
+ * avoids that rewrite, and importScripts is not available either, because Vite's
+ * dev server always creates module workers regardless of worker.format.
+ *
+ * The cost is a CSP `unsafe-eval`, which Pyodide's own pyodide.asm.js already
+ * requires -- so this gives up nothing the interpreter had not already spent.
  */
-declare const loadPyodide: typeof import('pyodide').loadPyodide;
+const importModule = new Function('url', 'return import(url)') as (
+  url: string,
+) => Promise<typeof import('pyodide')>;
 
 async function boot(msg: Extract<ToWorker, { type: 'init' }>) {
-  importScripts('/pyodide/pyodide.js');
+  const { loadPyodide } = await importModule('/pyodide/pyodide.mjs');
 
   const py = await loadPyodide({ indexURL: '/pyodide/' });
   pyodide = py;

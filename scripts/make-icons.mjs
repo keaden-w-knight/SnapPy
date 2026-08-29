@@ -130,5 +130,11 @@ const pngs = {
 for (const [name, size] of Object.entries(pngs)) {
   writeFileSync(join(OUT, name), render(size));
 }
-writeFileSync(join(OUT, 'icon.ico'), ico([16, 32, 48, 64, 128, 256]));
+const icoBytes = ico([16, 32, 48, 64, 128, 256]);
+writeFileSync(join(OUT, 'icon.ico'), icoBytes);
+
+// Browsers request /favicon.ico unprompted; serving it avoids a 404 per load.
+const publicDir = join(dirname(OUT), '..', 'public');
+mkdirSync(publicDir, { recursive: true });
+writeFileSync(join(publicDir, 'favicon.ico'), icoBytes);
 console.log(`[make-icons] wrote ${Object.keys(pngs).length} PNGs + icon.ico to src-tauri/icons`);
