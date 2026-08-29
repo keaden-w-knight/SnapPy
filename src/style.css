@@ -39,9 +39,9 @@ body {
   display: inline-block;
   background: #4c97ff;
   color: #fff;
-  border-radius: 6px;
-  padding: 1px 6px;
-  margin-right: 1px;
+  border-radius: 7px;
+  padding: 2px 8px;
+  margin-right: 2px;
 }
 
 .files { display: flex; gap: 4px; margin-left: 8px; }

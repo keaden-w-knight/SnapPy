@@ -44,7 +44,7 @@ program is parked on a read; a real pipe cannot, because nothing announces that 
 child process is blocked. So the native backend leaves the input box open for the
 whole run, exactly like a terminal.
 
-## Four constraints worth knowing before you change anything
+## Five constraints worth knowing before you change anything
 
 **1. Pyodide runs in a Web Worker, and it has to.**
 On the main thread it freezes the UI and -- worse -- makes Stop impossible: a
@@ -74,7 +74,18 @@ Pyodide's stdin hook must return synchronously. The worker parks on
 Stop while parked cannot be seen by the interrupt buffer, so the UI writes a
 cancel sentinel to wake the worker and let it raise `KeyboardInterrupt` itself.
 
-**4. Never let output be delivered line by line.**
+**4. Pyodide is loaded with `importScripts`, never `import()`.**
+Vite's dev server rewrites every `import()` specifier through `injectQuery`,
+appending `?import`, which routes the request into the transform pipeline --
+where anything under `public/` is rejected outright ("should not be imported
+from source code"). `@vite-ignore` suppresses the bundling, not the rewrite, so
+the dynamic-import version worked in a production build and failed in dev. The
+worker therefore uses `importScripts('/pyodide/pyodide.js')`, the classic build
+Pyodide ships for exactly this, which is an ordinary runtime call Vite never
+touches. That is also why `vite.config.ts` sets `worker.format: 'iife'` --
+module workers have no `importScripts`.
+
+**5. Never let output be delivered line by line.**
 `input()` writes its prompt *without* a trailing newline, so any line-batching
 output hook holds the question back until after the read -- showing it too late.
 Both backends therefore take raw bytes: Pyodide via `setStdout({ write })` rather
