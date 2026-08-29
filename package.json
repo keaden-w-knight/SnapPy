@@ -1,0 +1,26 @@
+{
+  "name": "snappy",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/copy-pyodide.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/lang-python": "^6.1.6",
+    "@codemirror/language": "^6.10.2",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.26.3",
+    "blockly": "^11.1.1",
+    "codemirror": "^6.0.1",
+    "pyodide": "^0.26.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3"
+  }
+}

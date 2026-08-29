@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Both are copied out of node_modules by scripts/copy-pyodide.mjs on install.
+public/pyodide/
+public/blockly-media/
+*.local
+.DS_Store
