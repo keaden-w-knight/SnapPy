@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SnapPy</title>
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand"><span class="logo">Sn</span>apPy</div>
+      <div class="actions">
+        <button id="run" class="btn btn-run" disabled>▶ Run</button>
+        <button id="stop" class="btn btn-stop" disabled>■ Stop</button>
+      </div>
+      <div id="status" class="pill" data-state="booting">Starting Python…</div>
+    </header>
+
+    <main class="layout">
+      <section id="blocks" class="pane pane-blocks" aria-label="Block editor"></section>
+
+      <aside class="side">
+        <div class="pane pane-code">
+          <h2 class="pane-title">Python</h2>
+          <div id="code" class="fill"></div>
+        </div>
+        <div class="pane pane-console">
+          <h2 class="pane-title">
+            Console
+            <button id="clear" class="btn-ghost">Clear</button>
+          </h2>
+          <div id="console" class="fill console"></div>
+        </div>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
