@@ -8,11 +8,25 @@
   <body>
     <header class="bar">
       <div class="brand"><span class="logo">Sn</span>apPy</div>
+
+      <nav class="files">
+        <button id="new" class="btn-ghost">New</button>
+        <button id="open" class="btn-ghost">Open</button>
+        <button id="save" class="btn-ghost">Save</button>
+        <button id="save-as" class="btn-ghost">Save As</button>
+      </nav>
+
+      <div id="project-name" class="project" data-dirty="false">Untitled</div>
+
       <div class="actions">
-        <button id="run" class="btn btn-run" disabled>▶ Run</button>
-        <button id="stop" class="btn btn-stop" disabled>■ Stop</button>
+        <button id="run" class="btn btn-run" disabled>&#9654; Run</button>
+        <button id="stop" class="btn btn-stop" disabled>&#9632; Stop</button>
       </div>
-      <div id="status" class="pill" data-state="booting">Starting Python…</div>
+
+      <div class="engine-status">
+        <div id="status" class="pill" data-state="booting">Starting Python...</div>
+        <div id="engine" class="engine">detecting...</div>
+      </div>
     </header>
 
     <main class="layout">

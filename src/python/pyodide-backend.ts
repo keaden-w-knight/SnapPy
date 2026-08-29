@@ -1,4 +1,5 @@
 import PyodideWorker from './pyodide.worker?worker';
+import type { BackendEvents, InputMode, PythonBackend, RunnerState } from './backend';
 import {
   CANCELLED,
   SIGINT,
@@ -10,14 +11,6 @@ import {
   type FromWorker,
 } from './protocol';
 
-export type RunnerState = 'booting' | 'idle' | 'running' | 'awaiting-input' | 'broken';
-
-export interface RunnerEvents {
-  onState(state: RunnerState): void;
-  onOutput(text: string, stream: 'stdout' | 'stderr'): void;
-  onFinished(status: 'ok' | 'error' | 'stopped', message?: string): void;
-}
-
 /** Cross-origin isolation gates SharedArrayBuffer; without it we lose graceful stop. */
 export const isolated = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated;
 
@@ -28,16 +21,19 @@ export const isolated = typeof SharedArrayBuffer !== 'undefined' && self.crossOr
  * hard worker terminate if that doesn't land. The hard path always works, so
  * Stop is never a lie -- it just costs a ~3s reboot of the interpreter.
  */
-export class PythonRunner {
+export class PyodideBackend implements PythonBackend {
+  readonly label = 'Pyodide (WebAssembly)';
+  readonly inputMode: InputMode = 'on-demand';
+
   private worker!: Worker;
-  private state: RunnerState = 'booting';
+  private currentState: RunnerState = 'booting';
   private interrupt: SharedArrayBuffer | null = null;
   private stdin: SharedArrayBuffer | null = null;
   private stdinI32: Int32Array | null = null;
   private killTimer: number | null = null;
   private encoder = new TextEncoder();
 
-  constructor(private events: RunnerEvents) {
+  constructor(private events: BackendEvents) {
     if (isolated) {
       this.interrupt = new SharedArrayBuffer(1);
       this.stdin = new SharedArrayBuffer(STDIN_TOTAL_BYTES);
@@ -54,8 +50,12 @@ export class PythonRunner {
   }
 
   private setState(state: RunnerState) {
-    this.state = state;
+    this.currentState = state;
     this.events.onState(state);
+  }
+
+  get state(): RunnerState {
+    return this.currentState;
   }
 
   private handle(msg: FromWorker) {
@@ -79,10 +79,6 @@ export class PythonRunner {
         this.events.onFinished(msg.status, msg.message);
         break;
     }
-  }
-
-  get currentState() {
-    return this.state;
   }
 
   run(code: string) {
@@ -127,9 +123,14 @@ export class PythonRunner {
   private hardReset() {
     this.clearKillTimer();
     this.worker.terminate();
-    this.events.onOutput('\n[stopped -- restarting Python]\n', 'stderr');
-    this.events.onFinished('stopped');
+    // The backend reports; the UI decides how to say it.
+    this.events.onFinished('stopped', 'interpreter restarted');
     this.spawn();
+  }
+
+  dispose() {
+    this.clearKillTimer();
+    this.worker.terminate();
   }
 
   private clearKillTimer() {

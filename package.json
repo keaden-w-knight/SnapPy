@@ -8,18 +8,28 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "desktop": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri",
+    "icons": "node scripts/make-icons.mjs",
+    "test": "node scripts/test.mjs"
   },
   "dependencies": {
     "@codemirror/lang-python": "^6.1.6",
     "@codemirror/language": "^6.10.2",
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.26.3",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "blockly": "^11.1.1",
     "codemirror": "^6.0.1",
     "pyodide": "^0.26.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
     "typescript": "^5.5.3",
     "vite": "^5.3.3"
   }

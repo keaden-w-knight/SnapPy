@@ -5,3 +5,6 @@ public/pyodide/
 public/blockly-media/
 *.local
 .DS_Store
+
+# Leftovers if the test harness crashes mid-run.
+.test-*.cjs

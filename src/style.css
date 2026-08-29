@@ -28,7 +28,7 @@ body {
   align-items: center;
   gap: 16px;
   padding: 0 16px;
-  height: 52px;
+  height: 56px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: none;
@@ -44,7 +44,29 @@ body {
   margin-right: 1px;
 }
 
+.files { display: flex; gap: 4px; margin-left: 8px; }
+
+.project {
+  font-weight: 700;
+  color: var(--ink-strong);
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--ground);
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A dot rather than an asterisk: it reads as status, not as part of the name. */
+.project[data-dirty="true"]::before {
+  content: "• ";
+  color: #ff8c1a;
+}
+
 .actions { display: flex; gap: 8px; margin-left: auto; }
+
+.engine-status { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.engine { font-size: 10px; color: #9aa0b4; }
 
 .btn {
   font: inherit;
