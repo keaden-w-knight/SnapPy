@@ -62,6 +62,27 @@ const COUNT = program([{
     VALUE: { block: { type: 'snappy_random', inputs: { FROM: numb(1), TO: numb(6) } } } } } } },
 }]);
 
+const FUNCTIONS = program([
+  {
+    type: 'procedures_defnoreturn', x: 40, y: 40, fields: { NAME: 'greet' },
+    inputs: { STACK: { block: { type: 'snappy_print',
+      inputs: { VALUE: text('hello from a function') } } } },
+  },
+  { type: 'snappy_when_run', x: 40, y: 240,
+    next: { block: { type: 'snappy_call', fields: { NAME: 'greet' } } } },
+]);
+
+const FUNCTION_VALUE = program([
+  { type: 'procedures_defreturn', x: 40, y: 40, fields: { NAME: 'answer' },
+    inputs: { RETURN: numb(42) } },
+  { type: 'snappy_when_run', x: 40, y: 240,
+    next: { block: { type: 'snappy_print', inputs: {
+      VALUE: { block: { type: 'math_arithmetic', fields: { OP: 'ADD' }, inputs: {
+        A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' } } },
+        B: numb(1),
+      } } } } } } },
+]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -239,6 +260,39 @@ try {
     `(() => { const t = ${OUT}; return t.trim().split('\\n').filter(Boolean).length >= 3 ? t : null; })()`,
     60000);
   check('interpreter still works after a Stop', true, JSON.stringify(counted.trim()));
+  // 6. The Functions flyout offers the dropdown call blocks.
+  await loadProgram(FUNCTIONS);
+  const flyoutTypes = await evaluate(`(() => {
+    const row = [...document.querySelectorAll('.blocklyTreeRow')]
+      .find((r) => r.textContent.trim() === 'Functions');
+    if (!row) return 'no Functions category';
+    row.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    row.click();
+    return null;
+  })()`);
+  if (flyoutTypes) throw new Error(flyoutTypes);
+  const flyoutCount = await waitFor('functions flyout to open',
+    "document.querySelectorAll('.blocklyFlyout .blocklyDraggable').length || null", 15000);
+  check('Functions flyout has blocks', flyoutCount >= 4, `${flyoutCount} blocks`);
+
+  // 7. A statement call to a defined function runs.
+  check('statement call generates a call',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('greet()'));
+  await evaluate("document.querySelector('#run').click()");
+  const fnOut = await waitFor('function output',
+    `(() => { const t = ${OUT}; return t.includes('hello from a function') ? t : null; })()`, 60000);
+  check('calling a function produces its output', true, JSON.stringify(fnOut.trim()));
+
+  // 8. The oval call block works inside an operator.
+  await loadProgram(FUNCTION_VALUE);
+  check('oval call nests in an operator',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('answer() + 1'));
+  await evaluate("document.querySelector('#run').click()");
+  const valueOut = await waitFor('oval call output',
+    `(() => { const t = ${OUT}; return t.includes('43') ? t : null; })()`, 60000);
+  check('oval call returns a usable value', true, JSON.stringify(valueOut.trim()));
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

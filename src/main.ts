@@ -3,6 +3,7 @@ import { pythonGenerator } from 'blockly/python';
 import './blocks/blocks';
 import { scratchTheme } from './blocks/theme';
 import { toolbox } from './blocks/toolbox';
+import { registerFunctionsCategory } from './blocks/functions';
 import type { PythonBackend, RunnerState } from './python/backend';
 import { createBackend } from './python/select';
 import { isolated } from './python/pyodide-backend';
@@ -38,6 +39,8 @@ const workspace = Blockly.inject($('#blocks'), {
   move: { scrollbars: true, drag: true, wheel: true },
   grid: { spacing: 40, length: 3, colour: '#ECECEC', snap: false },
 });
+
+registerFunctionsCategory(workspace);
 
 // --- project state ----------------------------------------------------------
 

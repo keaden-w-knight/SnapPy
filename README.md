@@ -109,6 +109,28 @@ A related sharp edge: an interrupt that arrives while Pyodide is still
 so the worker also listens for `unhandledrejection`. Without that the run never
 reports completion.
 
+## Functions
+
+The Functions category replaces Blockly's built-in `PROCEDURE` flyout, which
+lists one call block per defined function -- a palette that grows without bound.
+Instead there are two call blocks that pick their target from a dropdown of
+whatever is currently defined:
+
+| Block | Shape | Generates |
+| --- | --- | --- |
+| `run [name]` | statement | `greet()` on its own line |
+| `result of [name]` | oval | `answer()` inside an operator or any value input |
+
+Both list every function, with or without a `return`. A function that returns
+nothing still calls fine in an expression -- it yields `None` -- so filtering the
+oval block down to return-functions would hide functions for no real gain.
+
+Argument sockets follow the chosen function: picking a different name, or editing
+a definition's parameters, rebuilds them. Connections are carried across by
+parameter name, so renaming one parameter does not detach values plugged into the
+others. A call whose function has been deleted keeps its name and shows a warning
+rather than silently retargeting itself.
+
 ## Projects
 
 Saved as `.snappy` -- JSON with a `format`/`version` header, so old files keep
@@ -151,8 +173,20 @@ branding; that also produces the `.icns` that macOS needs.
 `npm test` bundles each `tests/*.test.mts` and runs it in Node. It covers block
 to Python generation -- including that every generated program is accepted by a
 real local interpreter via `ast.parse` -- and the project file format, both
-round-trip and error paths. Drag and drop and the Tauri backends are not covered;
-they need a browser and a built desktop app respectively.
+round-trip and error paths.
+
+`npm run test:browser` drives an installed Chromium browser over CDP, with no
+extra dependencies (Node 22 has a global `WebSocket`). It covers what unit tests
+cannot: that the page is cross-origin isolated, that Pyodide boots, that a
+program runs, that `input()` blocks and resumes with its prompt flushed before
+the read, that Stop interrupts a runaway loop and the interpreter survives it,
+and that the Functions flyout and both call blocks work. Set `SNAPPY_BROWSER` if
+the browser is not found automatically.
+
+A Pyodide loading regression that passed a production build but broke the dev
+server shipped once because nothing exercised a running page. Hence the above.
+
+The Tauri backends are still not covered; they need a built desktop app.
 
 ## Layout
 
@@ -160,6 +194,7 @@ they need a browser and a built desktop app respectively.
 src/blocks/locale.ts           Installs Blockly.Msg -- import before any block exists
 src/blocks/theme.ts            Scratch palette, Zelos styling
 src/blocks/blocks.ts           Custom blocks + Python generators, restyle pass
+src/blocks/functions.ts        Dropdown call blocks + the Functions flyout
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement
 src/python/select.ts           Chooses native or Pyodide at startup

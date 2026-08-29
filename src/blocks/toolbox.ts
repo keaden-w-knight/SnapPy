@@ -1,4 +1,5 @@
 import type * as Blockly from 'blockly/core';
+import { FUNCTIONS_CATEGORY } from './functions';
 
 const num = (value: number) => ({
   shadow: { type: 'math_number', fields: { NUM: value } },
@@ -107,7 +108,8 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
       kind: 'category',
       name: 'Functions',
       categorystyle: 'procedure_category',
-      custom: 'PROCEDURE',
+      // Our own flyout: two dropdown call blocks instead of one per function.
+      custom: FUNCTIONS_CATEGORY,
     },
   ],
 };
