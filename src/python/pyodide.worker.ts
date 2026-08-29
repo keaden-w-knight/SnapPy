@@ -7,6 +7,7 @@ import {
   type FromWorker,
   type ToWorker,
 } from './protocol';
+import { cleanTraceback } from './traceback';
 
 // Pyodide is fetched at runtime from /pyodide/ rather than bundled. @vite-ignore
 // stops Vite from trying to resolve this at build time.
@@ -122,18 +123,6 @@ self.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
   const { status, message } = classify(event.reason);
   finish(status, message);
 });
-
-/**
- * Pyodide prefixes tracebacks with frames from its own runner, which are noise
- * to someone whose whole program is six blocks. Keep from the first frame that
- * refers to the generated module onwards.
- */
-function cleanTraceback(message: string): string {
-  const lines = message.split('\n');
-  const start = lines.findIndex((l) => l.includes('File "<exec>"'));
-  if (start === -1) return message.trim();
-  return ['Traceback (most recent call last):', ...lines.slice(start)].join('\n').trim();
-}
 
 self.onmessage = async (event: MessageEvent<ToWorker>) => {
   const msg = event.data;

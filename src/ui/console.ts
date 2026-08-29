@@ -8,6 +8,7 @@ export class ConsolePane {
   private inputRow: HTMLElement;
   private field: HTMLInputElement;
   private onSubmit: ((line: string) => void) | null = null;
+  private persistent = false;
 
   constructor(private root: HTMLElement) {
     this.root.innerHTML = `
@@ -24,9 +25,12 @@ export class ConsolePane {
       event.preventDefault();
       const line = this.field.value;
       this.field.value = '';
-      this.hideInput();
+      const submit = this.onSubmit;
+      // A pipe-backed process may read many times and never tells us when, so
+      // the row stays open; Pyodide asks again explicitly for each read.
+      if (!this.persistent) this.hideInput();
       this.write(`${line}\n`, 'stdin');
-      this.onSubmit?.(line);
+      submit?.(line);
     });
   }
 
@@ -44,15 +48,20 @@ export class ConsolePane {
     this.output.replaceChildren();
   }
 
-  requestInput(onSubmit: (line: string) => void) {
+  requestInput(onSubmit: (line: string) => void, options: { persistent?: boolean } = {}) {
     this.onSubmit = onSubmit;
+    this.persistent = options.persistent ?? false;
+    const wasHidden = this.inputRow.hidden;
     this.inputRow.hidden = false;
-    this.field.focus();
+    // Only steal focus when the row first appears, so a persistent row does not
+    // yank the caret away while someone is dragging blocks.
+    if (wasHidden) this.field.focus();
     this.output.scrollTop = this.output.scrollHeight;
   }
 
   hideInput() {
     this.inputRow.hidden = true;
     this.onSubmit = null;
+    this.persistent = false;
   }
 }
