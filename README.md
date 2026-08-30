@@ -168,9 +168,14 @@ function without one yields `None`.
 | --- | --- | --- |
 | `run [name]` | statement | `greet()` on its own line |
 | `result of [name]` | oval | `answer()` inside an operator or any value input |
+| `result of [name]` | **hexagon** | `is_ready()` where a condition belongs, like `if` |
 | `return [value]` | statement | `return 42` |
 
-Both call blocks list every function and pick their target from a dropdown, so
+The hexagonal call has a `Boolean` output, so it only fits condition sockets and
+the fit is visible; unset it yields `False` rather than `None`, because the shape
+promises a truth value. The oval one stays untyped, so it goes anywhere.
+
+All the call blocks list every function and pick their target from a dropdown, so
 the palette stays one block per shape however many functions exist. The menu
 reads `select a function` when nothing has been picked, and `define a function
 first` when there is nothing to pick -- the latter being the only entry, and
@@ -330,6 +335,12 @@ uses is saved with it.
 The Stage pane appears when the program actually **imports** turtle, not merely
 when the blocks are in the palette -- having the category available should not
 cost a pane you are not drawing in.
+
+Hiding it needs `[hidden] { display: none !important }` in `style.css`. The
+browser's own `[hidden]` rule lives in the user-agent sheet, so any author rule
+that sets `display` beats it -- `.pane { display: flex }` left "hidden" panes
+fully on screen. A test that asserts `element.hidden` will not notice, because
+the property is set and honoured; assert what renders instead.
 
 The blocks generate ordinary code -- `import turtle`, `turtle.forward(100)` --
 so what the code pane shows is what a learner would type outside the app.

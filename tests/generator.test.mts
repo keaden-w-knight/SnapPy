@@ -327,6 +327,50 @@ const paramOval = (name: string, type: 'value' | 'boolean' = 'value') => ({
   check('loose oval -> valid Python', isValidPython(code));
 }
 
+{
+  // The hexagonal call: a function's answer used as a condition.
+  const code = withVar([
+    {
+      type: 'snappy_function_def', x: 0, y: 0,
+      fields: { NAME: 'is_ready' }, extraState: { params: [] },
+      inputs: { DO: { block: { type: 'snappy_return',
+        inputs: { VALUE: { block: { type: 'logic_boolean', fields: { BOOL: 'TRUE' } } } } } } },
+    },
+    {
+      type: 'controls_if', x: 0, y: 300,
+      inputs: {
+        IF0: { block: { type: 'snappy_call_boolean', fields: { NAME: 'is_ready' },
+          extraState: { params: [] } } },
+        DO0: { block: { type: 'snappy_print', inputs: { VALUE: text('go') } } },
+      },
+    },
+  ]);
+  check('a hexagonal call fits an if condition',
+    code.includes('if is_ready():'), JSON.stringify(code.trim()));
+  check('hexagonal call -> valid Python', isValidPython(code));
+
+  const hex = ws.getAllBlocks(false).find((b) => b.type === 'snappy_call_boolean')!;
+  check('the hexagonal call reports a boolean shape',
+    JSON.stringify(hex.outputConnection?.getCheck()) === '["Boolean"]',
+    JSON.stringify(hex.outputConnection?.getCheck()));
+
+  const oval = ws.newBlock('snappy_call_value');
+  check('the oval call stays untyped so it fits anywhere',
+    oval.outputConnection?.getCheck() === null,
+    JSON.stringify(oval.outputConnection?.getCheck()));
+}
+
+{
+  // An unset hexagon still has to be a truth value.
+  const code = withVar([{
+    type: 'controls_if', x: 0, y: 0,
+    inputs: { IF0: { block: { type: 'snappy_call_boolean' } } },
+  }]);
+  check('an unset hexagonal call falls back to False',
+    code.includes('if False:'), JSON.stringify(code.trim()));
+  check('unset hexagonal call -> valid Python', isValidPython(code));
+}
+
 // The hat block itself must contribute no code of its own.
 check('hat alone generates nothing',
   gen([{ type: 'snappy_when_run', x: 0, y: 0 }]).trim() === '');
