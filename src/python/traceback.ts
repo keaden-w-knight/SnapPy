@@ -15,3 +15,14 @@ export function cleanTraceback(message: string): string {
 export function normalizeNewlines(text: string): string {
   return text.replace(/\r\n/g, '\n');
 }
+
+/**
+ * Line number of the deepest frame in the user's own program, which is the one
+ * that actually failed. Frames from the harness use other file names and are
+ * ignored.
+ */
+export function errorLine(message: string): number | null {
+  const frames = [...message.matchAll(/File "<(?:exec|string)>", line (\d+)/g)];
+  const last = frames.at(-1);
+  return last ? Number(last[1]) : null;
+}

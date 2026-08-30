@@ -4,6 +4,10 @@ import './blocks/blocks';
 import { scratchTheme } from './blocks/theme';
 import { toolbox } from './blocks/toolbox';
 import { registerFunctionsCategory } from './blocks/functions';
+import { registerVariablesCategory } from './blocks/variables';
+import { buildLineMap } from './blocks/sourcemap';
+import { errorLine } from './python/traceback';
+import { clearErrorHighlight, showErrorBlock } from './ui/error-highlight';
 import type { PythonBackend, RunnerState } from './python/backend';
 import { createBackend } from './python/select';
 import { isolated } from './python/pyodide-backend';
@@ -41,6 +45,7 @@ const workspace = Blockly.inject($('#blocks'), {
 });
 
 registerFunctionsCategory(workspace);
+registerVariablesCategory(workspace);
 
 // --- project state ----------------------------------------------------------
 
@@ -111,15 +116,31 @@ const events = {
   onState: applyState,
   onOutput: (text: string, stream: 'stdout' | 'stderr') => consolePane.write(text, stream),
   onFinished: (status: 'ok' | 'error' | 'stopped', message?: string) => {
-    if (status === 'error' && message) consolePane.write(`${message}\n`, 'stderr');
+    if (status === 'error' && message) {
+      consolePane.write(`${message}\n`, 'stderr');
+      blameBlock(message);
+    }
     if (status === 'stopped') {
       consolePane.write(`\n[stopped${message ? ` -- ${message}` : ''}]\n`, 'stderr');
     }
   },
 };
 
+/**
+ * Point at the block behind a traceback. The map is built per run rather than on
+ * every edit, since it costs a second generation pass and is only ever needed
+ * once something has actually failed.
+ */
+function blameBlock(message: string) {
+  const line = errorLine(message);
+  if (line === null) return;
+  const blockId = buildLineMap(workspace, code).get(line);
+  if (blockId) showErrorBlock(workspace, blockId);
+}
+
 runButton.addEventListener('click', () => {
   consolePane.clear();
+  clearErrorHighlight();
   backend?.run(code);
 });
 stopButton.addEventListener('click', () => backend?.stop());
@@ -221,6 +242,7 @@ renderProjectLabel();
 workspace.addChangeListener((event: Blockly.Events.Abstract) => {
   if (event.isUiEvent) return;
   regenerate();
+  clearErrorHighlight();
   dirty = true;
   renderProjectLabel();
   localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot()));

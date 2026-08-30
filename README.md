@@ -74,16 +74,30 @@ Pyodide's stdin hook must return synchronously. The worker parks on
 Stop while parked cannot be seen by the interrupt buffer, so the UI writes a
 cancel sentinel to wake the worker and let it raise `KeyboardInterrupt` itself.
 
-**4. Pyodide is loaded with `importScripts`, never `import()`.**
-Vite's dev server rewrites every `import()` specifier through `injectQuery`,
-appending `?import`, which routes the request into the transform pipeline --
-where anything under `public/` is rejected outright ("should not be imported
-from source code"). `@vite-ignore` suppresses the bundling, not the rewrite, so
-the dynamic-import version worked in a production build and failed in dev. The
-worker therefore uses `importScripts('/pyodide/pyodide.js')`, the classic build
-Pyodide ships for exactly this, which is an ordinary runtime call Vite never
-touches. That is also why `vite.config.ts` sets `worker.format: 'iife'` --
-module workers have no `importScripts`.
+**4. Pyodide is served raw, and its import is built at runtime.**
+Raw, because `pyodide.mjs` performs a dozen dynamic imports of its own (its
+`asm.js` payload, plus `node:fs` and friends on the Node path). Letting a bundler
+transform it rewrites those and breaks it, so it is served untouched from
+`public/` and Vite must never treat it as source.
+
+Built at runtime, because Vite rewrites every `import()` it can see: in dev it
+wraps the specifier in `injectQuery`, appending `?import`, which routes the
+request into the transform pipeline -- where a file under `public/` is rejected
+outright ("should not be imported from source code"). Neither `@vite-ignore` nor
+an opaque specifier variable avoids that rewrite, and `importScripts` is not an
+escape either, because Vite's dev server always creates module workers
+regardless of `worker.format`. So the worker does:
+
+```ts
+const importModule = new Function('url', 'return import(url)');
+```
+
+which is the one form Vite cannot see. The cost is a CSP `unsafe-eval` that
+Pyodide's own `pyodide.asm.js` already required.
+
+This one shipped broken: the dynamic-import version passed a production build
+and failed only in dev, because nothing exercised a running page. `npm run
+test:browser` exists because of it.
 
 **5. Never let output be delivered line by line.**
 `input()` writes its prompt *without* a trailing newline, so any line-batching
@@ -130,6 +144,47 @@ a definition's parameters, rebuilds them. Connections are carried across by
 parameter name, so renaming one parameter does not detach values plugged into the
 others. A call whose function has been deleted keeps its name and shows a warning
 rather than silently retargeting itself.
+
+## Variables: global and local
+
+Blockly's variables are all workspace-global -- a throwaway counter inside one
+function joins every variable dropdown in the project. The Variables category
+keeps Blockly's own blocks and adds two that lean on Python's scoping instead:
+
+| Block | Shape | Generates |
+| --- | --- | --- |
+| `make [name] = [value]` | statement | `counter = 0` |
+| `[name]` | oval | `counter` |
+
+The name is typed into the block rather than chosen from a dropdown, so it never
+enters the global palette. An assignment inside a function is a local in Python,
+which is exactly the scoping these blocks inherit -- `make counter = 0` in a
+function body belongs to that function.
+
+The trade-off is that nothing checks the spelling: a typo in the getter is a
+`NameError` at runtime. The error highlighter below points straight at it.
+
+Typed names are coerced to legal Python identifiers as you type (`my var!`
+becomes `my_var_`, `class` becomes `class_`), so the block always displays
+exactly the name it will generate.
+
+## Errors point at the block
+
+When a program fails, the block that caused it is outlined in red and scrolled
+into view. Blockly has no source map, so this is built from `STATEMENT_PREFIX`:
+generation runs a second time with a marker comment carrying each block's id
+before every statement, and stripping those markers must reproduce the real
+program *exactly*. That equality is the correctness check -- if the two passes
+disagree for any reason, the map is thrown away and nothing is highlighted,
+rather than blaming the wrong block.
+
+The markers only exist in the throwaway second pass, so the code pane and the
+interpreter both see clean output. The map is built per run rather than per edit,
+since it costs a full extra generation and is only needed once something failed.
+
+Both backends are covered: Pyodide tracebacks name the module `<exec>` and
+CPython's `-c` names it `<string>`, and the deepest frame in either is the one
+that gets blamed.
 
 ## Projects
 
@@ -180,8 +235,9 @@ extra dependencies (Node 22 has a global `WebSocket`). It covers what unit tests
 cannot: that the page is cross-origin isolated, that Pyodide boots, that a
 program runs, that `input()` blocks and resumes with its prompt flushed before
 the read, that Stop interrupts a runaway loop and the interpreter survives it,
-and that the Functions flyout and both call blocks work. Set `SNAPPY_BROWSER` if
-the browser is not found automatically.
+that the Functions flyout and both call blocks work, and that a failing program
+highlights the block that caused it. Set `SNAPPY_BROWSER` if the browser is not
+found automatically.
 
 A Pyodide loading regression that passed a production build but broke the dev
 server shipped once because nothing exercised a running page. Hence the above.
@@ -194,7 +250,9 @@ The Tauri backends are still not covered; they need a built desktop app.
 src/blocks/locale.ts           Installs Blockly.Msg -- import before any block exists
 src/blocks/theme.ts            Scratch palette, Zelos styling
 src/blocks/blocks.ts           Custom blocks + Python generators, restyle pass
-src/blocks/functions.ts        Dropdown call blocks + the Functions flyout
+src/blocks/functions.ts        Dropdown call blocks, Functions flyout, hoisting fix
+src/blocks/variables.ts        Local-variable blocks + the Variables flyout
+src/blocks/sourcemap.ts        Generated line -> block id, for error highlighting
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement
 src/python/select.ts           Chooses native or Pyodide at startup
@@ -205,7 +263,7 @@ src/python/protocol.ts         Worker messages + shared-buffer layout
 src/python/traceback.ts        Strips harness frames from both engines
 src/project/format.ts          .snappy schema, parse/serialize
 src/project/storage.ts         Tauri / File System Access / download strategies
-src/ui/                        Console and read-only code pane
+src/ui/                        Console, read-only code pane, error highlight
 src-tauri/                     Rust shell, config, capabilities, icons
 ```
 
