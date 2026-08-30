@@ -15,8 +15,11 @@ import { pythonGenerator, Order } from 'blockly/python';
  * to only return-functions would hide functions for no real gain.
  */
 
-const NO_FUNCTION = '';
-const PLACEHOLDER = '(define a function first)';
+const UNSET = '';
+/** Shown when functions exist but none has been picked yet. */
+const SELECT_PROMPT = 'select a function';
+/** Shown when there is nothing to pick. Choosing it is a no-op. */
+const NONE_DEFINED = 'define a function first';
 
 type ProcedureTuple = [string, string[], boolean];
 
@@ -31,25 +34,78 @@ interface CallBlock extends Blockly.Block {
 
 /** Every function defined in the workspace, both kinds, sorted by name. */
 function procedureOptions(this: Blockly.Field): Blockly.MenuOption[] {
-  const block = this.getSourceBlock();
-  const workspace = block?.workspace;
-  const options: Blockly.MenuOption[] = [];
+  const owner = this.getSourceBlock()?.workspace as
+    | (Blockly.Workspace & { isFlyout?: boolean; targetWorkspace?: Blockly.Workspace })
+    | undefined;
+  // A block sitting in the flyout belongs to the flyout's own workspace, which
+  // holds only the palette's sample blocks. Ask the workspace it will be dropped
+  // into, so the menu offers the project's real functions.
+  const workspace = owner?.isFlyout ? owner.targetWorkspace : owner;
+  const names: string[] = [];
 
   if (workspace) {
     const [withoutReturn, withReturn] = Blockly.Procedures.allProcedures(workspace);
-    for (const [name] of [...withoutReturn, ...withReturn]) options.push([name, name]);
-    options.sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    for (const [name] of [...withoutReturn, ...withReturn]) names.push(name);
+    names.sort((a, b) => a.localeCompare(b));
   }
 
-  // Blockly requires the current value to be present, even if the function was
-  // deleted -- otherwise it silently rewrites the field and the block loses its
-  // target. onchange() flags the dangling reference instead.
-  const current = block?.getFieldValue('NAME');
-  if (current && current !== NO_FUNCTION && !options.some(([, value]) => value === current)) {
-    options.unshift([current, current]);
+  if (!names.length) return [[NONE_DEFINED, UNSET]];
+
+  const options: Blockly.MenuOption[] = names.map((name) => [name, name]);
+  // The prompt is only offered while nothing is chosen, so it cannot be picked
+  // to un-choose a function by accident.
+  if (this.getValue() === UNSET) options.unshift([SELECT_PROMPT, UNSET]);
+  return options;
+}
+
+/**
+ * A dropdown that never rewrites its own value.
+ *
+ * Blockly's FieldDropdown rejects any value missing from the current option
+ * list and falls back to the first option. With a dynamic list that is a trap:
+ * the list is empty while a call block is being deserialised ahead of its
+ * definition, while the block sits in the flyout, and briefly during some
+ * workspace edits -- so a chosen function would silently revert to the
+ * placeholder. Here the name is authoritative, and a name with no matching
+ * definition is reported by onchange() as a warning instead.
+ */
+class FunctionNameField extends Blockly.FieldDropdown {
+  // Both overloads must be restated, or the class narrows to Field<string> and
+  // no longer matches Blockly's Field<string | undefined>.
+  protected override doClassValidation_(newValue: string): string | null | undefined;
+  protected override doClassValidation_(newValue?: string): string | null;
+  protected override doClassValidation_(newValue?: string): string | null | undefined {
+    return typeof newValue === 'string' ? newValue : null;
   }
 
-  return options.length ? options : [[PLACEHOLDER, NO_FUNCTION]];
+  /**
+   * FieldDropdown caches the chosen option -- label included -- in
+   * selectedOption_ when the value is set. That happens in the constructor,
+   * before the field has a source block, so the label froze as the "no
+   * functions" placeholder and stayed there even once functions existed.
+   * Deriving the label from the live options instead keeps it honest.
+   */
+  protected override getText_(): string | null {
+    const value = this.getValue();
+    const match = this.getOptions().find(([, option]) => option === value);
+    return typeof match?.[0] === 'string' ? match[0] : null;
+  }
+
+  override getOptions(): Blockly.MenuOption[] {
+    // Never use Blockly's cache. The first generation happens in the field
+    // constructor, before the field has a source block -- so it caches the
+    // "no functions" placeholder and would keep serving it forever, including
+    // for blocks dragged out of the flyout.
+    const options = super.getOptions(false);
+    const value = this.getValue();
+    // Keep the selected name present so the menu shows it and Blockly's own
+    // lookup for the display label succeeds.
+    if (typeof value === 'string' && value !== UNSET &&
+        !options.some(([, option]) => option === value)) {
+      return [[value, value], ...options];
+    }
+    return options;
+  }
 }
 
 /** Shared behaviour: keep the argument sockets matching the chosen function. */
@@ -117,7 +173,7 @@ Blockly.Blocks['snappy_call'] = {
   init(this: CallBlock) {
     this.appendDummyInput('HEADER')
       .appendField('run')
-      .appendField(new Blockly.FieldDropdown(procedureOptions), 'NAME');
+      .appendField(new FunctionNameField(procedureOptions), 'NAME');
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setInputsInline(true);
@@ -131,7 +187,7 @@ Blockly.Blocks['snappy_call_value'] = {
   init(this: CallBlock) {
     this.appendDummyInput('HEADER')
       .appendField('result of')
-      .appendField(new Blockly.FieldDropdown(procedureOptions), 'NAME');
+      .appendField(new FunctionNameField(procedureOptions), 'NAME');
     this.setOutput(true); // No type check: it fits any oval input.
     this.setInputsInline(true);
     this.setStyle('procedure_blocks');
@@ -243,3 +299,61 @@ pythonGenerator.init = function (workspace: Blockly.Workspace) {
     .filter((line) => !generated.has(line.split(' = ')[0]))
     .join('\n');
 };
+
+/**
+ * Blockly emits `global a, b` at the top of every function for every workspace
+ * variable that is not one of that function's parameters -- whether or not the
+ * body mentions it. So defining any global variable anywhere puts its name
+ * inside every function, which reads as though the function uses it.
+ *
+ * Names the body never references are narrowed away. A `global` for a variable
+ * that is only read is a no-op anyway, and one for a variable that is never
+ * touched is pure noise, so dropping them cannot change behaviour. Names that
+ * are not workspace variables (Blockly's developer variables) are left alone.
+ */
+function narrowGlobals(block: Blockly.Block, code: string): string {
+  const lines = code.split('\n');
+  const defIndex = lines.findIndex((line) => line.startsWith('def '));
+  if (defIndex === -1) return code;
+
+  // Blockly always emits the global line first in the body, so match it by
+  // position rather than by scanning -- user code could contain the word too.
+  const globalLine = lines[defIndex + 1] ?? '';
+  const match = /^(\s+)global (.+)$/.exec(globalLine);
+  if (!match) return code;
+
+  const referenced = new Set<string>();
+  for (const descendant of block.getDescendants(false)) {
+    if (descendant === block) continue; // its own params are not globals
+    for (const model of descendant.getVarModels?.() ?? []) {
+      referenced.add(pythonGenerator.getVariableName(model.name));
+    }
+  }
+  const workspaceVars = new Set(
+    block.workspace.getAllVariables().map((v) => pythonGenerator.getVariableName(v.name)),
+  );
+
+  const declared = match[2].split(', ');
+  const kept = declared.filter((name) => referenced.has(name) || !workspaceVars.has(name));
+  if (kept.length === declared.length) return code;
+
+  if (kept.length) lines[defIndex + 1] = match[1] + 'global ' + kept.join(', ');
+  else lines.splice(defIndex + 1, 1);
+  return lines.join('\n');
+}
+
+// The definition generators return null and stash their code in definitions_,
+// so the narrowing has to happen there rather than on a returned string.
+for (const type of ['procedures_defnoreturn', 'procedures_defreturn'] as const) {
+  const original = pythonGenerator.forBlock[type];
+  if (!original) continue;
+  pythonGenerator.forBlock[type] = function (block, generator) {
+    const definitions = (generator as unknown as GeneratorInternals).definitions_;
+    const before = new Set(Object.keys(definitions));
+    const result = original.call(this, block, generator);
+    for (const key of Object.keys(definitions)) {
+      if (!before.has(key)) definitions[key] = narrowGlobals(block, definitions[key]);
+    }
+    return result;
+  };
+}
