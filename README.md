@@ -125,68 +125,68 @@ reports completion.
 
 ## Functions
 
-The Functions category replaces Blockly's built-in `PROCEDURE` flyout, which
-lists one call block per defined function -- a palette that grows without bound.
-Instead there are two call blocks that pick their target from a dropdown of
-whatever is currently defined:
+Blockly's own `procedures_*` blocks model every parameter as a workspace
+variable, so declaring `do_something(param1)` put `param1` in every variable
+dropdown in the project. `snappy_function_def` replaces them:
+
+```
+to (greet) (who) +          <- "who" is a draggable oval; + adds an input
+do  say (who)
+```
+
+A parameter is a name block sitting in the definition's socket. Drag it into the
+body to use it and the definition grows a fresh one in its place, so a parameter
+is never lost by being used. Nothing touches the variable list.
+
+Parameters have a **shape**, chosen when you press `+`:
+
+| Kind | Shape | Fits |
+| --- | --- | --- |
+| value | oval | any value socket |
+| true / false | hexagon | boolean sockets, like `if`'s condition |
+
+Zelos draws a `Boolean` output as a hexagon, so the call block's matching
+argument socket takes the same shape and what fits where is visible rather than
+something to remember. Inputs are removed from the block's context menu.
+
+There is one definition block rather than Blockly's separate with/without return
+pair, because Python draws no such distinction: `return` is a statement, and a
+function without one yields `None`.
 
 | Block | Shape | Generates |
 | --- | --- | --- |
 | `run [name]` | statement | `greet()` on its own line |
 | `result of [name]` | oval | `answer()` inside an operator or any value input |
+| `return [value]` | statement | `return 42` |
 
-Both list every function, with or without a `return`. A function that returns
-nothing still calls fine in an expression -- it yields `None` -- so filtering the
-oval block down to return-functions would hide functions for no real gain.
+Both call blocks list every function and pick their target from a dropdown, so
+the palette stays one block per shape however many functions exist. The menu
+reads `select a function` when nothing has been picked, and `define a function
+first` when there is nothing to pick -- the latter being the only entry, and
+choosing it a no-op.
 
-Argument sockets follow the chosen function: picking a different name, or editing
-a definition's parameters, rebuilds them. Connections are carried across by
-parameter name, so renaming one parameter does not detach values plugged into the
-others. A call whose function has been deleted keeps its name and shows a warning
-rather than silently retargeting itself.
+Argument sockets follow the chosen function: picking a different name, or
+renaming a parameter oval, rebuilds them. Connections are carried across by
+parameter name, so renaming one input does not detach values plugged into the
+others. A call whose function has been deleted keeps its name and shows a
+warning rather than silently retargeting itself.
 
-The menu reads `select a function` when nothing has been picked, and
-`define a function first` when there is nothing to pick -- the latter being the
-only entry, and choosing it a no-op.
-
-Blockly's stock `FieldDropdown` fights all of this in three ways, so
-`FunctionNameField` overrides each:
+Blockly's stock `FieldDropdown` fights that in three ways, so `FunctionNameField`
+overrides each:
 
 - It **rejects any value absent from the current option list** and falls back to
   the first option. The list is empty while a call block is deserialised ahead of
   its definition, so a chosen function silently reverted to the placeholder.
-  Here the stored name is authoritative and a dangling one becomes a warning.
 - It **caches the generated option list**, first built inside the field
   constructor before the field has a source block -- so it cached "no functions"
-  and served that forever. The cache is bypassed.
+  and served that forever.
 - It **caches the display label** in `selectedOption_` when the value is set,
-  which likewise froze at the placeholder. The label is derived from the live
-  options instead.
+  which froze at the placeholder for the same reason.
 
-## Why a global appears inside every function
-
-Blockly's Python generator emits `global a, b` at the top of a function for every
-workspace variable that is not one of that function's parameters -- with no check
-on whether the body mentions them. Define any global anywhere and its name shows
-up inside every function, reading as though the function uses it.
-
-Names the body never references are now narrowed away. A `global` for a variable
-that is only read is a no-op, and one for a variable that is never touched is
-pure noise, so dropping them cannot change behaviour; a variable the function
-actually assigns keeps its declaration.
-
-Separately, Blockly hoists `name = None` for every variable the workspace uses.
-That is deliberate -- it stops a read-before-assign becoming a `NameError` -- so
-it stays, except for names Python already binds for you:
-
-- **function parameters**, which are local by definition, and
-- **`for` loop targets**, which the loop assigns before the body runs (this only
-  applies to Blockly's stock loops; SnapPy's own loops never make a workspace
-  variable in the first place).
-
-A name is only dropped when *every* block using it sits inside the thing that
-binds it. Read a loop variable after the loop and the declaration comes back,
-because an empty list means the body never ran.
+Only variables a function body *assigns* get a `global` declaration; reading one
+already finds the module-level value. Blockly's own procedure blocks declared
+every workspace variable regardless, which is where stray `global x` lines came
+from.
 
 ## Loop variables are ovals, not dropdowns
 
@@ -240,7 +240,10 @@ The trade-off is that nothing checks the spelling: a typo in the getter is a
 
 Blockly's own variable dropdown keeps **Rename variable...** but no longer offers
 **Delete the 'x' variable**: it removes every block using the variable in one
-click, behind a confirmation that is easy to dismiss by reflex.
+click, behind a confirmation that is easy to dismiss by reflex. In its place the
+Variables palette has a **Remove unused variables** button, which only clears
+names no block references -- safe to press without reading carefully, which the
+per-variable delete never was.
 
 Rename goes through an in-app dialog rather than `window.prompt`. WebView2 --
 what the Tauri desktop build renders in -- does not implement `window.prompt` at
@@ -344,6 +347,7 @@ src/blocks/functions.ts        Dropdown call blocks, Functions flyout, hoisting 
 src/blocks/variables.ts        Local-variable blocks + the Variables flyout
 src/blocks/loops.ts            Loops whose variable is a draggable oval
 src/blocks/names.ts            Identifier rules + the refilling name socket
+src/blocks/hoisting.ts         Tidies code from Blockly's stock blocks
 src/blocks/sourcemap.ts        Generated line -> block id, for error highlighting
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement
