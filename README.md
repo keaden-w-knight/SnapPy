@@ -193,6 +193,13 @@ A parameter is a name block sitting in the definition's socket. Drag it into the
 body to use it and the definition grows a fresh one in its place, so a parameter
 is never lost by being used. Nothing touches the variable list.
 
+Right-clicking a parameter -- either the oval itself or the definition it sits
+in -- offers **Edit** and **Remove**. Editing changes the name and the shape
+together, and renames the parameter's uses in the body along with it, because a
+signature that no longer matches the code inside it fails silently. Removing
+leaves those uses alone: deleting someone's blocks to tidy up after a menu click
+is a worse surprise than a name that no longer resolves.
+
 Parameters have a **shape**, chosen when you press `+`:
 
 | Kind | Shape | Fits |
@@ -214,6 +221,11 @@ function without one yields `None`.
 | `result of [name]` | oval | `answer()` inside an operator or any value input |
 | `result of [name]` | **hexagon** | `is_ready()` where a condition belongs, like `if` |
 | `return [value]` | statement | `return 42` |
+| `return [value]` | statement, **hexagon** socket | `return True` |
+
+A boolean does fit the ordinary `return`, since an unchecked input accepts
+anything -- but it does not *look* like it does, and a socket that gives no sign
+of what belongs in it is worse than one more block. Hence the pair.
 
 The hexagonal call has a `Boolean` output, so it only fits condition sockets and
 the fit is visible; unset it yields `False` rather than `None`, because the shape

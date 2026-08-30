@@ -1,6 +1,7 @@
 import * as Blockly from 'blockly/core';
 import { pythonGenerator, Order } from 'blockly/python';
 import { installVarSlot, slotName, toIdentifier } from './names';
+import { editParameter, parameterSlot, removeParameter } from './functions';
 
 /**
  * Local variables: a name typed straight into the block, rather than one of
@@ -85,6 +86,39 @@ pythonGenerator.forBlock['snappy_local_get'] = nameExpression;
  * global set/get/change blocks) with the local blocks appended, so both kinds
  * sit in one place and the difference is visible side by side.
  */
+/**
+ * A name oval sitting in a definition's socket *is* a parameter, so it offers
+ * the same actions the definition does. Right-clicking the input you want to
+ * change is where people look first, and the definition's own menu is easy to
+ * miss on a wide block.
+ */
+function parameterContextMenu(
+  this: Blockly.Block,
+  options: Blockly.ContextMenuRegistry.LegacyContextMenuOption[],
+) {
+  if (this.isInFlyout) return;
+  const slot = parameterSlot(this);
+  if (!slot) return;
+
+  options.unshift(
+    {
+      text: 'Edit this input...',
+      enabled: true,
+      callback: () => editParameter(slot.definition, slot.index),
+    },
+    {
+      text: 'Remove this input',
+      enabled: true,
+      callback: () => removeParameter(slot.definition, slot.index),
+    },
+  );
+}
+
+for (const type of ['snappy_local_get', 'snappy_local_get_boolean']) {
+  (Blockly.Blocks[type] as { customContextMenu?: unknown }).customContextMenu =
+    parameterContextMenu;
+}
+
 export const VARIABLES_CATEGORY = 'SNAPPY_VARIABLES';
 
 /**

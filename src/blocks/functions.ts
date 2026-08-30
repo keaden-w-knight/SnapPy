@@ -263,26 +263,24 @@ const DEFINITION_MIXIN = {
     });
   },
 
-  /** Removing an input is rare enough to belong in the context menu. */
+  /** Editing and removing inputs, offered on the definition itself. */
   customContextMenu(
     this: DefBlock,
     options: Blockly.ContextMenuRegistry.LegacyContextMenuOption[],
   ) {
     if (this.isInFlyout) return;
-    for (const param of this.params_) {
+    this.params_.forEach((param, index) => {
+      options.push({
+        text: `Edit input "${param.name}"...`,
+        enabled: true,
+        callback: () => editParameter(this, index),
+      });
       options.push({
         text: `Remove input "${param.name}"`,
         enabled: true,
-        callback: () => {
-          Blockly.Events.setGroup(true);
-          try {
-            this.updateShape_(this.params_.filter((other) => other.name !== param.name));
-          } finally {
-            Blockly.Events.setGroup(false);
-          }
-        },
+        callback: () => removeParameter(this, index),
       });
-    }
+    });
   },
 };
 
@@ -334,6 +332,88 @@ Blockly.Blocks[METHOD_BLOCK] = {
     initDefinition(this, true);
   },
 };
+
+// --- editing parameters -----------------------------------------------------
+
+const GETTER_TYPES = new Set(Object.values(GETTER_FOR));
+
+/**
+ * If this block is a name oval sitting in a definition's input socket, says
+ * which definition and which input -- so the oval can offer the same edit and
+ * remove actions the definition does. Right-clicking the thing you want to
+ * change is the obvious move, and it was not available.
+ */
+export function parameterSlot(
+  block: Blockly.Block,
+): { definition: DefBlock; index: number } | null {
+  if (!GETTER_TYPES.has(block.type)) return null;
+
+  const parent = block.getParent();
+  if (!parent || (parent.type !== DEF_BLOCK && parent.type !== METHOD_BLOCK)) return null;
+
+  const definition = parent as DefBlock;
+  const index = definition.params_.findIndex(
+    (_, i) => definition.getInputTargetBlock(paramInput(i)) === block,
+  );
+  return index === -1 ? null : { definition, index };
+}
+
+/** Renames every use of a parameter inside the definition that owns it. */
+function renameUses(definition: DefBlock, from: string, to: string) {
+  if (from === to) return;
+  for (const descendant of definition.getDescendants(false)) {
+    if (!GETTER_TYPES.has(descendant.type)) continue;
+    if (descendant.getFieldValue('NAME') === from) descendant.setFieldValue(to, 'NAME');
+  }
+}
+
+export function editParameter(definition: DefBlock, index: number) {
+  const param = definition.params_[index];
+  if (!param) return;
+
+  askForChoice({
+    message: `Edit this input:`,
+    defaultValue: param.name,
+    choices: [
+      { label: 'value (oval)', value: 'value' },
+      { label: 'true / false (hexagon)', value: 'boolean' },
+    ],
+    defaultChoice: param.type,
+    onDone: (result) => {
+      if (!result) return;
+      const name = toIdentifier(result.text);
+      if (definition.params_.some((other, i) => i !== index && other.name === name)) {
+        Blockly.dialog.alert(`This function already has an input called "${name}".`);
+        return;
+      }
+
+      Blockly.Events.setGroup(true);
+      try {
+        // Rename the body's uses first, while the old name still identifies them.
+        renameUses(definition, param.name, name);
+        const params = definition.params_.map((other, i) =>
+          i === index ? { name, type: result.choice as ParamType } : other,
+        );
+        definition.updateShape_(params);
+      } finally {
+        Blockly.Events.setGroup(false);
+      }
+    },
+  });
+}
+
+export function removeParameter(definition: DefBlock, index: number) {
+  const param = definition.params_[index];
+  if (!param) return;
+  Blockly.Events.setGroup(true);
+  try {
+    // Uses in the body are left alone: deleting someone's blocks to tidy up
+    // after a menu click is a worse surprise than a name that no longer resolves.
+    definition.updateShape_(definition.params_.filter((_, i) => i !== index));
+  } finally {
+    Blockly.Events.setGroup(false);
+  }
+}
 
 // --- looking callables up ---------------------------------------------------
 
@@ -569,6 +649,18 @@ Blockly.common.defineBlocksWithJsonArray([
     style: 'procedure_blocks',
     tooltip: 'Send a value back to whoever called this function.',
   },
+  {
+    // A hexagon does fit the untyped socket above -- an unchecked input accepts
+    // anything -- but it does not look like it does, and a socket that gives no
+    // sign of what belongs in it is worse than one more block.
+    type: 'snappy_return_boolean',
+    message0: 'return %1',
+    args0: [{ type: 'input_value', name: 'VALUE', check: 'Boolean' }],
+    previousStatement: null,
+    inputsInline: true,
+    style: 'procedure_blocks',
+    tooltip: 'Send a true/false answer back to whoever called this function.',
+  },
 ]);
 
 // --- generators -------------------------------------------------------------
@@ -631,10 +723,13 @@ ${body}
 `;
 };
 
-pythonGenerator.forBlock['snappy_return'] = (block) => {
+const returnStatement = (block: Blockly.Block) => {
   const value = pythonGenerator.valueToCode(block, 'VALUE', Order.NONE);
   return value ? `return ${value}\n` : 'return\n';
 };
+
+pythonGenerator.forBlock['snappy_return'] = returnStatement;
+pythonGenerator.forBlock['snappy_return_boolean'] = returnStatement;
 
 function callExpression(block: Blockly.Block): string | null {
   const chosen = block.getFieldValue('NAME');
@@ -684,5 +779,6 @@ export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
     { kind: 'block', type: 'snappy_call_value' },
     { kind: 'block', type: 'snappy_call_boolean' },
     { kind: 'block', type: 'snappy_return' },
+    { kind: 'block', type: 'snappy_return_boolean' },
   ]);
 }
