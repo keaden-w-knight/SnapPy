@@ -80,6 +80,19 @@ pythonGenerator.forBlock['snappy_local_get'] = (block) => [
  */
 export const VARIABLES_CATEGORY = 'SNAPPY_VARIABLES';
 
+/**
+ * Drop "Delete the 'x' variable" from the variable dropdown. It removes every
+ * block using the variable in one click, with a confirmation that is easy to
+ * dismiss by reflex -- too much destruction for a menu meant for renaming.
+ * Unused variables can still be cleared by starting a new project.
+ */
+const originalVariableOptions = Blockly.FieldVariable.dropdownCreate;
+Blockly.FieldVariable.dropdownCreate = function (this: Blockly.FieldVariable) {
+  return originalVariableOptions
+    .call(this)
+    .filter(([, value]) => value !== Blockly.DELETE_VARIABLE_ID);
+};
+
 const LOCAL_BLOCKS = `
   <block type="snappy_local_set">
     <value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>

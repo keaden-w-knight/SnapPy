@@ -176,9 +176,15 @@ pure noise, so dropping them cannot change behaviour; a variable the function
 actually assigns keeps its declaration.
 
 Separately, Blockly hoists `name = None` for every variable the workspace uses.
-That one is deliberate -- it stops a read-before-assign becoming a `NameError` --
-so it stays, except for function parameters, which are local by definition and
-never needed a module-level declaration.
+That is deliberate -- it stops a read-before-assign becoming a `NameError` -- so
+it stays, except for names Python already binds for you:
+
+- **function parameters**, which are local by definition, and
+- **`for` loop targets**, which the loop assigns before the body runs.
+
+A name is only dropped when *every* block using it sits inside the thing that
+binds it. Read a loop variable after the loop and the declaration comes back,
+because an empty list means the body never ran.
 
 ## Variables: global and local
 
@@ -198,6 +204,16 @@ function body belongs to that function.
 
 The trade-off is that nothing checks the spelling: a typo in the getter is a
 `NameError` at runtime. The error highlighter below points straight at it.
+
+Blockly's own variable dropdown keeps **Rename variable...** but no longer offers
+**Delete the 'x' variable**: it removes every block using the variable in one
+click, behind a confirmation that is easy to dismiss by reflex.
+
+Rename goes through an in-app dialog rather than `window.prompt`. WebView2 --
+what the Tauri desktop build renders in -- does not implement `window.prompt` at
+all, so Blockly's default silently did nothing there: the menu item fired, no
+prompt appeared, and the callback never ran. `src/ui/dialogs.ts` replaces
+`prompt`, `alert` and `confirm` through `Blockly.dialog.set*`.
 
 Typed names are coerced to legal Python identifiers as you type (`my var!`
 becomes `my_var_`, `class` becomes `class_`), so the block always displays
@@ -298,7 +314,7 @@ src/python/protocol.ts         Worker messages + shared-buffer layout
 src/python/traceback.ts        Strips harness frames from both engines
 src/project/format.ts          .snappy schema, parse/serialize
 src/project/storage.ts         Tauri / File System Access / download strategies
-src/ui/                        Console, read-only code pane, error highlight
+src/ui/                        Console, code pane, error highlight, dialogs
 src-tauri/                     Rust shell, config, capabilities, icons
 ```
 

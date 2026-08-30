@@ -244,38 +244,62 @@ export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
   ]);
 }
 
-/**
- * Blockly hoists `name = None` for every variable a workspace uses, and function
- * parameters count as variables -- so `def greet(who)` also emitted a module
- * level `who = None`. That line is pure noise in the code pane, which is the
- * thing this app exists to show.
- *
- * Only parameters used nowhere outside a function definition are dropped. If the
- * same name is also used at the top level it keeps its declaration, because
- * there it really can be read before it is assigned.
- */
-function parameterOnlyNames(workspace: Blockly.Workspace): Set<string> {
-  const [withoutReturn, withReturn] = Blockly.Procedures.allProcedures(workspace);
-  const names = new Set<string>();
-  for (const [, params] of [...withoutReturn, ...withReturn]) {
-    for (const param of params) names.add(param);
-  }
-  if (!names.size) return names;
+/** Blocks that introduce a name in Python: function parameters and loop targets. */
+const LOOP_BLOCKS = new Set(['controls_for', 'controls_forEach']);
 
-  for (const block of workspace.getAllBlocks(false)) {
-    if (isInsideProcedure(block)) continue;
-    for (const model of block.getVarModels?.() ?? []) names.delete(model.name);
+function bindsName(block: Blockly.Block, name: string): boolean {
+  const asProcedure = block as unknown as Partial<ProcedureDefBlock>;
+  if (typeof asProcedure.getProcedureDef === 'function') {
+    return asProcedure.getProcedureDef()[1].includes(name);
   }
-  return names;
-}
-
-function isInsideProcedure(block: Blockly.Block | null): boolean {
-  for (let current = block; current; current = current.getSurroundParent()) {
-    if (typeof (current as unknown as Partial<ProcedureDefBlock>).getProcedureDef === 'function') {
-      return true;
-    }
+  if (LOOP_BLOCKS.has(block.type)) {
+    return (block.getVarModels?.() ?? []).some((model) => model.name === name);
   }
   return false;
+}
+
+/** Is every use of this name inside something that assigns it first? */
+function boundAt(block: Blockly.Block, name: string): boolean {
+  for (let current: Blockly.Block | null = block; current; current = current.getSurroundParent()) {
+    if (bindsName(current, name)) return true;
+  }
+  return false;
+}
+
+/**
+ * Blockly hoists `name = None` for every variable the workspace uses, which
+ * catches names Python already binds for you: function parameters, and the
+ * target of a `for` loop. `def greet(who)` produced a module-level `who = None`,
+ * and `for i in x` produced `i = None`. Both are noise in the code pane, which
+ * is the artefact this app exists to show.
+ *
+ * A name is only dropped when *every* block using it sits inside something that
+ * binds it -- the function whose parameter it is, or the loop that assigns it.
+ * Used anywhere else it keeps its declaration, because there it really can be
+ * read before assignment (an empty list means the loop body never runs).
+ */
+function selfBoundNames(workspace: Blockly.Workspace): Set<string> {
+  const candidates = new Set<string>();
+
+  for (const block of workspace.getAllBlocks(false)) {
+    const asProcedure = block as unknown as Partial<ProcedureDefBlock>;
+    if (typeof asProcedure.getProcedureDef === 'function') {
+      for (const param of asProcedure.getProcedureDef()[1]) candidates.add(param);
+    }
+    if (LOOP_BLOCKS.has(block.type)) {
+      for (const model of block.getVarModels?.() ?? []) candidates.add(model.name);
+    }
+  }
+  if (!candidates.size) return candidates;
+
+  for (const block of workspace.getAllBlocks(false)) {
+    for (const model of block.getVarModels?.() ?? []) {
+      if (candidates.has(model.name) && !boundAt(block, model.name)) {
+        candidates.delete(model.name);
+      }
+    }
+  }
+  return candidates;
 }
 
 type GeneratorInternals = { definitions_: Record<string, string> };
@@ -284,7 +308,7 @@ const baseInit = pythonGenerator.init.bind(pythonGenerator);
 pythonGenerator.init = function (workspace: Blockly.Workspace) {
   baseInit(workspace);
 
-  const skip = parameterOnlyNames(workspace);
+  const skip = selfBoundNames(workspace);
   if (!skip.size) return;
 
   const internals = pythonGenerator as unknown as GeneratorInternals;

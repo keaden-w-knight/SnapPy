@@ -106,6 +106,15 @@ const UNCHOSEN_CALL = program([
   { type: 'snappy_call', x: 40, y: 260 },
 ]);
 
+// A global variable, plus a loop whose target is bound by the loop itself.
+const VARIABLES = {
+  variables: [{ name: 'score', id: 'scoreId' }],
+  blocks: { languageVersion: 0, blocks: [
+    { type: 'variables_set', x: 40, y: 40, fields: { VAR: { id: 'scoreId' } },
+      inputs: { VALUE: numb(1) } },
+  ] },
+};
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -196,7 +205,12 @@ try {
 
   edge = spawn(browser, [
     '--headless=new', `--remote-debugging-port=${CDP_PORT}`, `--user-data-dir=${profile}`,
-    '--no-first-run', '--no-default-browser-check', '--disable-gpu', APP,
+    '--no-first-run', '--no-default-browser-check', '--disable-gpu',
+    // Blockly flushes its event queue from requestAnimationFrame; a backgrounded
+    // renderer never runs it, so change listeners would appear dead.
+    '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
+    '--disable-features=CalculateNativeWinOcclusion',
+    APP,
   ], { stdio: 'ignore' });
 
   let page;
@@ -388,6 +402,62 @@ try {
   check('the selection survives a workspace interaction',
     (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
       .includes('greet()'));
+  // 11. Renaming a variable, and the absence of the delete option.
+  await loadProgram(VARIABLES);
+  check('the loop target is not hoisted',
+    !(await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('i = None'));
+
+  const openVariableMenu = `(() => {
+    const field = [...document.querySelectorAll('#blocks .blocklyEditableText')]
+      .find((f) => (f.textContent || '').includes('score'));
+    if (!field) return 'no score field; saw ' + JSON.stringify(
+      [...document.querySelectorAll('#blocks .blocklyEditableText')].map((f) => f.textContent));
+    const r = field.getBoundingClientRect();
+    const opts = { bubbles: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2,
+                   pointerId: 1, isPrimary: true, button: 0 };
+    field.dispatchEvent(new PointerEvent('pointerdown', opts));
+    field.dispatchEvent(new PointerEvent('pointerup', opts));
+    return null;
+  })()`;
+  const menuItems =
+    "[...document.querySelectorAll('.blocklyMenuItem')].map((i) => i.textContent).join(' | ')";
+
+  // The field has to exist before it can be clicked.
+  await waitFor('the score field to render',
+    `(() => ${blockText}.includes('score') || null)()`, 15000);
+  const menuError = await evaluate(openVariableMenu);
+  if (menuError) throw new Error(menuError);
+  await waitFor('variable menu', `(() => ${menuItems}.length || null)()`, 15000);
+  const items = await evaluate(menuItems);
+  check('rename is offered', items.toLowerCase().includes('rename'), JSON.stringify(items));
+  check('delete is not offered', !items.toLowerCase().includes('delete'), JSON.stringify(items));
+
+  // Rename through the app's own dialog -- WebView2 has no window.prompt, so
+  // Blockly's default would do nothing at all there.
+  await evaluate(`(() => {
+    const item = [...document.querySelectorAll('.blocklyMenuItem')]
+      .find((i) => (i.textContent || '').toLowerCase().includes('rename'));
+    item.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, isPrimary: true }));
+    item.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1, isPrimary: true }));
+    item.click();
+  })()`);
+  const dialogShown = await waitFor('the rename dialog',
+    "document.querySelector('.snappy-dialog-input') ? 'shown' : null", 15000);
+  check('an in-app rename dialog appears', dialogShown === 'shown');
+
+  await evaluate(`(() => {
+    const input = document.querySelector('.snappy-dialog-input');
+    input.value = 'points';
+    document.querySelector('.snappy-dialog [data-act="ok"]').click();
+  })()`);
+  await waitFor('the rename to reach the code',
+    `(() => (document.querySelector('#code .cm-content')?.textContent ?? '').includes('points') || null)()`,
+    20000);
+  check('renaming updates the generated code', true);
+  check('the old name is gone',
+    !(await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('score'));
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;
