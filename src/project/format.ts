@@ -1,5 +1,8 @@
+import { CURRENT_VERSION, migrateWorkspace } from './migrate';
+
 export const FILE_EXTENSION = 'snappy';
-export const FORMAT_VERSION = 1;
+/** Bumped whenever a block changes shape; see migrate.ts. */
+export const FORMAT_VERSION = CURRENT_VERSION;
 
 export interface Project {
   name: string;
@@ -53,7 +56,9 @@ export function parse(text: string, fallbackName: string): Project {
 
   return {
     name: typeof file.name === 'string' && file.name.trim() ? file.name : fallbackName,
-    workspace: file.workspace,
+    // Older files are walked forward before Blockly ever sees them, so a block
+    // type that has since been replaced never needs to still exist.
+    workspace: migrateWorkspace(file.workspace, file.version),
   };
 }
 
