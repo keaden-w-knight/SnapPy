@@ -167,6 +167,47 @@ check('identifier: already valid is untouched', toIdentifier('counter') === 'cou
     JSON.stringify(code.trim()));
 }
 
+{
+  // A for-loop target is assigned by the loop itself, so it needs no hoist.
+  const code = gen(
+    [{ type: 'controls_forEach', x: 0, y: 0, fields: { VAR: { id: 'iId' } },
+      inputs: { LIST: { block: { type: 'lists_create_with' } },
+        DO: { block: { type: 'snappy_print', inputs: {
+          VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'iId' } } } } } } } } }],
+    [{ name: 'i', id: 'iId' }],
+  );
+  check('for-each target is not hoisted', !code.includes('i = None'),
+    JSON.stringify(code.trim()));
+  check('for-each hoisting -> valid Python', isValidPython(code));
+}
+
+{
+  const code = gen(
+    [{ type: 'controls_for', x: 0, y: 0, fields: { VAR: { id: 'iId' } },
+      inputs: { FROM: numb(1), TO: numb(3), BY: numb(1),
+        DO: { block: { type: 'snappy_print', inputs: {
+          VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'iId' } } } } } } } } }],
+    [{ name: 'i', id: 'iId' }],
+  );
+  check('count-with target is not hoisted', !code.includes('i = None'),
+    JSON.stringify(code.trim()));
+}
+
+{
+  // Read outside the loop, where the loop may never have run: keep the hoist.
+  const code = gen(
+    [
+      { type: 'controls_forEach', x: 0, y: 0, fields: { VAR: { id: 'iId' } },
+        inputs: { LIST: { block: { type: 'lists_create_with' } } } },
+      { type: 'snappy_print', x: 0, y: 300,
+        inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'iId' } } } } } },
+    ],
+    [{ name: 'i', id: 'iId' }],
+  );
+  check('a loop target read outside the loop keeps its hoist',
+    code.includes('i = None'), JSON.stringify(code.trim()));
+}
+
 // --- slice and for loops ----------------------------------------------------
 
 {

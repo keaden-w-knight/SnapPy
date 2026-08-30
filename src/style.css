@@ -212,3 +212,47 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .snappy-error-block { animation: none; }
 }
+
+/* ---- in-app dialogs (replacing window.prompt and friends) ---- */
+
+.snappy-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(46, 53, 80, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.snappy-dialog {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(46, 53, 80, 0.3);
+  padding: 20px;
+  width: min(380px, calc(100vw - 32px));
+}
+
+.snappy-dialog-message {
+  margin: 0 0 14px;
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.snappy-dialog-input {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-strong);
+  outline: none;
+}
+.snappy-dialog-input:focus { border-color: #4c97ff; }
+
+.snappy-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

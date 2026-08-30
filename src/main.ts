@@ -8,6 +8,7 @@ import { registerVariablesCategory } from './blocks/variables';
 import { buildLineMap } from './blocks/sourcemap';
 import { errorLine } from './python/traceback';
 import { clearErrorHighlight, showErrorBlock } from './ui/error-highlight';
+import { installDialogs } from './ui/dialogs';
 import type { PythonBackend, RunnerState } from './python/backend';
 import { createBackend } from './python/select';
 import { isolated } from './python/pyodide-backend';
@@ -32,6 +33,10 @@ const projectLabel = $('#project-name');
 const consolePane = new ConsolePane($('#console'));
 const codePane = createCodePane($('#code'));
 const projectIO = createProjectIO();
+
+// Installed before any workspace interaction can open one. The callback picks
+// up renames, which Blockly applies inside the dialog's own callback.
+installDialogs({ onClosed: () => noteWorkspaceChanged() });
 
 const workspace = Blockly.inject($('#blocks'), {
   toolbox,
@@ -239,14 +244,24 @@ Blockly.serialization.workspaces.load(autosaved ? JSON.parse(autosaved) : STARTE
 regenerate();
 renderProjectLabel();
 
-workspace.addChangeListener((event: Blockly.Events.Abstract) => {
-  if (event.isUiEvent) return;
+function noteWorkspaceChanged() {
   regenerate();
   clearErrorHighlight();
   dirty = true;
   renderProjectLabel();
   localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot()));
+}
+
+workspace.addChangeListener((event: Blockly.Events.Abstract) => {
+  if (event.isUiEvent) return;
+  noteWorkspaceChanged();
 });
+
+// Dev-only handle so the browser test suite can drive the workspace directly
+// rather than only through synthetic DOM events. Vite strips this from builds.
+if (import.meta.env.DEV) {
+  (window as unknown as { snappy?: unknown }).snappy = { workspace, Blockly };
+}
 
 // Zelos measures against the container, so a resize needs an explicit nudge.
 new ResizeObserver(() => Blockly.svgResize(workspace)).observe($('#blocks'));
