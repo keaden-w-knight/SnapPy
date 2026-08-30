@@ -539,6 +539,26 @@ Blockly.Blocks['snappy_call_value'] = {
   ...CALL_MIXIN,
 };
 
+/**
+ * The same call in a boolean shape.
+ *
+ * A function that answers a yes/no question reads better in an `if` than a
+ * general-purpose oval does, and Zelos draws a `Boolean` output as a hexagon --
+ * so the block only fits where a condition belongs, and the fit is visible.
+ */
+Blockly.Blocks['snappy_call_boolean'] = {
+  init(this: CallBlock) {
+    this.appendDummyInput('HEADER')
+      .appendField('result of')
+      .appendField(new FunctionNameField(functionOptions), 'NAME');
+    this.setOutput(true, 'Boolean');
+    this.setInputsInline(true);
+    this.setStyle('procedure_blocks');
+    this.setTooltip('Use a function’s answer where a true/false value is wanted.');
+  },
+  ...CALL_MIXIN,
+};
+
 Blockly.common.defineBlocksWithJsonArray([
   {
     type: 'snappy_return',
@@ -639,6 +659,12 @@ pythonGenerator.forBlock['snappy_call_value'] = (block) => {
   return call ? [call, Order.FUNCTION_CALL] : ['None', Order.ATOMIC];
 };
 
+pythonGenerator.forBlock['snappy_call_boolean'] = (block) => {
+  const call = callExpression(block);
+  // False rather than None when unset: the shape promises a true/false value.
+  return call ? [call, Order.FUNCTION_CALL] : ['False', Order.ATOMIC];
+};
+
 // --- palette ----------------------------------------------------------------
 
 export const FUNCTIONS_CATEGORY = 'SNAPPY_FUNCTIONS';
@@ -649,6 +675,7 @@ export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
     { kind: 'block', type: METHOD_BLOCK },
     { kind: 'block', type: 'snappy_call' },
     { kind: 'block', type: 'snappy_call_value' },
+    { kind: 'block', type: 'snappy_call_boolean' },
     { kind: 'block', type: 'snappy_return' },
   ]);
 }

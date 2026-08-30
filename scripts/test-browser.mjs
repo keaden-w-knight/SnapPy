@@ -216,6 +216,16 @@ const READY = "(() => document.querySelector('#status')?.textContent?.trim() ===
 // Always a bounded slice: a runaway program can emit megabytes.
 const OUT = "(document.querySelector('#console .console-output')?.textContent ?? '').slice(-400)";
 const STATUS = "document.querySelector('#status')?.textContent?.trim()";
+// `hidden` is only a request: an author rule that sets `display` overrides it,
+// which is exactly how a "hidden" pane stayed on screen. Assert what renders.
+const isOnScreen = (selector) =>
+  `(() => {
+    const el = document.querySelector('${selector}');
+    if (!el) return false;
+    const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+      el.getBoundingClientRect().height > 0;
+  })()`;
 
 async function loadProgram(workspace, modules = []) {
   const stored = { workspace, modules };
@@ -387,6 +397,14 @@ try {
   const flyoutCount = await waitFor('functions flyout to open',
     "document.querySelectorAll('.blocklyFlyout .blocklyDraggable').length || null", 15000);
   check('Functions flyout has blocks', flyoutCount >= 4, `${flyoutCount} blocks`);
+  check('the flyout offers a hexagonal call too',
+    (await evaluate(`(() => {
+      const ws = window.snappy.workspace;
+      const hex = ws.newBlock('snappy_call_boolean');
+      const check = JSON.stringify(hex.outputConnection.getCheck());
+      hex.dispose(false);
+      return check;
+    })()`)) === '["Boolean"]');
 
   // 7. A statement call to a defined function runs.
   check('statement call generates a call',
@@ -622,8 +640,7 @@ try {
     (await evaluate(
       "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
       .includes('Turtle'));
-  check('the stage pane is shown',
-    (await evaluate("!document.querySelector('#stage-pane').hidden")) === true);
+  check('the stage pane is shown', (await evaluate(isOnScreen('#stage-pane'))) === true);
   check('turtle code is generated',
     (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
       .includes('turtle.forward(60)'));
@@ -656,11 +673,11 @@ try {
       "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
       .includes('Turtle'));
   check('the stage is hidden when nothing imports turtle',
-    (await evaluate("document.querySelector('#stage-pane').hidden")) === true);
+    (await evaluate(isOnScreen('#stage-pane'))) === false);
 
   await loadProgram(HELLO);
   check('the stage is hidden when the module is off',
-    (await evaluate("document.querySelector('#stage-pane').hidden")) === true);
+    (await evaluate(isOnScreen('#stage-pane'))) === false);
   check('the turtle category is gone',
     !(await evaluate(
       "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
