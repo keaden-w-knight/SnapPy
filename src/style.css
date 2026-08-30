@@ -128,12 +128,17 @@ body {
 
 .side {
   display: grid;
-  /* Three rows, but a hidden pane is display:none and so is not a grid item --
-     with the stage off, the code and console simply take the first two rows.
-     The stage gets a floor because a squeezed one cannot show a drawing. */
-  grid-template-rows: minmax(200px, 1.5fr) minmax(0, 1.1fr) minmax(0, 1fr);
+  /* Two panes by default: the code pane and the console keep the proportions
+     they have always had. */
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
+}
+
+/* With the stage in play there are three. It gets a floor because a squeezed
+   stage cannot show a drawing, and the other two shrink to make room. */
+.side.with-stage {
+  grid-template-rows: minmax(180px, 1.4fr) minmax(0, 1.1fr) minmax(0, 1fr);
 }
 
 .pane {
