@@ -302,3 +302,12 @@ body {
   position: absolute;
   inset: 0;
 }
+
+/* Offered only in the browser: in the desktop app you already have it. */
+.btn-download {
+  border-color: #4c97ff;
+  color: #4c97ff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.btn-download:hover { background: #eaf2ff; }

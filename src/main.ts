@@ -9,9 +9,9 @@ import { registerClassesCategory } from './blocks/classes';
 import { buildLineMap } from './blocks/sourcemap';
 import { errorLine } from './python/traceback';
 import { clearErrorHighlight, showErrorBlock } from './ui/error-highlight';
-import { installDialogs } from './ui/dialogs';
+import { askToConfirm, installDialogs } from './ui/dialogs';
 import type { PythonBackend, RunnerState } from './python/backend';
-import { createBackend } from './python/select';
+import { createBackend, isTauri } from './python/select';
 import { isolated } from './python/pyodide-backend';
 import { createProjectIO } from './project/storage';
 import { FORMAT_VERSION, parse, serialize } from './project/format';
@@ -202,6 +202,40 @@ runButton.addEventListener('click', () => {
 });
 stopButton.addEventListener('click', () => backend?.stop());
 clearButton.addEventListener('click', () => consolePane.clear());
+
+// --- the desktop build ------------------------------------------------------
+
+/**
+ * Where the installers live. Defaults to the repository's releases, and can be
+ * pointed at a bucket instead with a VITE_DESKTOP_DOWNLOAD_URL build variable --
+ * no code change, so the deploy decides.
+ */
+const DOWNLOAD_URL: string =
+  (import.meta.env.VITE_DESKTOP_DOWNLOAD_URL as string | undefined) ||
+  'https://github.com/keaden-w-knight/SnapPy/releases/latest';
+
+function platformName(): string {
+  const agent = navigator.userAgent;
+  if (/Windows/i.test(agent)) return 'Windows';
+  if (/Macintosh|Mac OS X/i.test(agent)) return 'macOS';
+  if (/Linux|X11/i.test(agent)) return 'Linux';
+  return 'your computer';
+}
+
+const downloadButton = $<HTMLButtonElement>('#download');
+// Pointless inside the desktop app: you are already running it.
+downloadButton.hidden = isTauri;
+
+downloadButton.addEventListener('click', () => {
+  askToConfirm({
+    message:
+      `The desktop version runs your own Python instead of the browser's copy, so it ` +
+      `is faster, can open and save real files, and can use any installed package. ` +
+      `Downloads for ${platformName()} are on the releases page.`,
+    okLabel: 'Open downloads',
+    onConfirm: () => window.open(DOWNLOAD_URL, '_blank', 'noopener'),
+  });
+});
 
 // --- file commands ----------------------------------------------------------
 
