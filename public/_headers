@@ -1,0 +1,24 @@
+# Cloudflare Pages reads this file and applies the headers to matching requests.
+#
+# The first block is not optional. SharedArrayBuffer is only exposed to
+# cross-origin-isolated pages, and without it Stop cannot interrupt a running
+# program (it falls back to restarting the interpreter) and input() stops working
+# altogether. Serve this app anywhere that cannot set these two headers and it
+# quietly loses both.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Vite fingerprints these, so they can never go stale.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The interpreter is ~12 MB and pinned to an exact version in package.json;
+# without this every visit revalidates it.
+/pyodide/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/blockly-media/*
+  Cache-Control: public, max-age=31536000, immutable

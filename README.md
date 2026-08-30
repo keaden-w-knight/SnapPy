@@ -445,6 +445,37 @@ Separately, the workspace autosaves to `localStorage` under
 a crash net, not a project store -- the dot beside the project name marks unsaved
 changes, and Ctrl/Cmd+S and Ctrl/Cmd+O are wired up.
 
+## Deploying to the web
+
+Cloudflare Pages, because it can set the two headers this app cannot work
+without. `public/_headers` carries them, and Vite copies it into `dist/`.
+
+**Connected to Git** (auto-deploys on push):
+
+1. Workers &amp; Pages → Create → Pages → Connect to Git, pick the repo.
+2. Build command `npm run build`, output directory `dist`, framework preset None.
+3. Project → Custom domains → Set up a custom domain → `snappy.example.com`.
+   With the zone in the same account Cloudflare writes the DNS record and issues
+   the certificate itself; do not add the CNAME by hand.
+
+**Or from here:** `npm run deploy` builds and pushes with Wrangler.
+
+Three things that are easy to get wrong:
+
+- **`public/pyodide/` and `public/blockly-media/` are not in the repo.** They are
+  copied out of `node_modules` by `postinstall`, which Pages runs as part of
+  `npm install`, so a clean clone builds correctly -- but a deploy that skips the
+  install step ships a site with no interpreter.
+- **Nothing may strip the headers.** A Transform Rule, or a Worker in front of
+  the site, that drops `Cross-Origin-Embedder-Policy` silently costs you Stop and
+  `input()`. The app says so in its console when it notices.
+- **Turn Rocket Loader off** for the hostname. It defers and rewrites script
+  tags, which module workers do not survive.
+
+`npm run test:build` checks the built artifact before you ship it: that
+`dist/_headers` really carries both policies, that the Pyodide and Blockly assets
+were published, and that the built page boots an interpreter and runs a program.
+
 ## Desktop build
 
 Needs the Rust toolchain (https://rustup.rs) plus a platform webview: WebView2 on
@@ -471,6 +502,12 @@ branding; that also produces the `.icns` that macOS needs.
 to Python generation -- including that every generated program is accepted by a
 real local interpreter via `ast.parse` -- and the project file format, both
 round-trip and error paths.
+
+`npm run test:build` does the same against the *built* site served by `vite
+preview`. It is separate because the `window.snappy` handle the main suite drives
+the workspace through is stripped from production builds. The one regression that
+reached a user was a loader that worked in a build and failed in dev, so the
+reverse is worth guarding too.
 
 `npm run test:browser` drives an installed Chromium browser over CDP, with no
 extra dependencies (Node 22 has a global `WebSocket`). It covers what unit tests
