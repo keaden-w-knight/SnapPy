@@ -1,5 +1,6 @@
 import type * as Blockly from 'blockly/core';
 import { FUNCTIONS_CATEGORY } from './functions';
+import { CLASSES_CATEGORY } from './classes';
 import { VARIABLES_CATEGORY } from './variables';
 
 const num = (value: number) => ({
@@ -170,6 +171,12 @@ export function buildToolbox(
       categorystyle: 'procedure_category',
       // Our own flyout: two dropdown call blocks instead of one per function.
       custom: FUNCTIONS_CATEGORY,
+    },
+    {
+      kind: 'category',
+      name: 'Classes',
+      categorystyle: 'class_category',
+      custom: CLASSES_CATEGORY,
     },
     ...enabled
       .filter((name) => name in MODULE_CATEGORIES)

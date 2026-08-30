@@ -134,6 +134,17 @@ to (greet) (who) +          <- "who" is a draggable oval; + adds an input
 do  say (who)
 ```
 
+Definitions come in two shapes:
+
+| Block | Shape | Where it goes |
+| --- | --- | --- |
+| `to (name) ...` | hat | top level only -- nothing can be stacked onto it |
+| `method (name) ...` | statement | anywhere a statement fits, including a class body |
+
+A definition begins something rather than continuing a sequence, so the
+standalone one wears a hat like `when program starts`. The statement-shaped one
+exists because a class needs methods *inside* it.
+
 A parameter is a name block sitting in the definition's socket. Drag it into the
 body to use it and the definition grows a fresh one in its place, so a parameter
 is never lost by being used. Nothing touches the variable list.
@@ -219,6 +230,43 @@ A loose oval left on the canvas still generates a line of code, the same as any
 other unattached block -- this app treats everything on the workspace as program
 text.
 
+## Classes
+
+The Classes category has a hat-shaped `class` block whose body takes method
+definitions:
+
+```
+class (Dog)
+has  method (__init__) (self) (name) +
+     do  set (self) . (name) to (name)
+     method (speak) (self) +
+     do  say (self) . (name)
+```
+
+A definition inside a class *is* a method, and the block notices:
+
+- **`self` is added as its first input automatically.** Python passes the
+  instance as the first argument, so making the user remember that is busywork.
+- **A special-method menu appears** next to the name, offering `__init__`,
+  `__str__`, `__eq__` and the rest. Picking one writes it into the name field, so
+  free-form names still work by typing. The menu is removed again if the
+  definition is dragged out of the class.
+
+Property blocks read and write attributes through an object socket that comes
+pre-filled with `self`, which covers the common case without ruling out
+`other.name`.
+
+Calling works through the same dropdown as functions, which now lists three
+kinds of callable:
+
+| Chosen | Generates |
+| --- | --- |
+| a function | `greet('Ada')` |
+| a class | `Dog('Rex')` -- constructing takes `__init__`'s inputs, minus `self` |
+| `Dog.speak` | `rex.speak()` -- an `on` socket appears for the object |
+
+`self` is never an argument to fill in, because Python supplies it.
+
 ## Variables: global and local
 
 Blockly's variables are all workspace-global -- a throwaway counter inside one
@@ -276,8 +324,12 @@ that gets blamed.
 ## Modules: turtle
 
 The **Modules** category at the bottom of the palette switches libraries on. Only
-`turtle` so far; adding it appends a Turtle category and reveals the Stage pane.
-Which modules a project uses is saved with it.
+`turtle` so far; adding it appends a Turtle category. Which modules a project
+uses is saved with it.
+
+The Stage pane appears when the program actually **imports** turtle, not merely
+when the blocks are in the palette -- having the category available should not
+cost a pane you are not drawing in.
 
 The blocks generate ordinary code -- `import turtle`, `turtle.forward(100)` --
 so what the code pane shows is what a learner would type outside the app.
@@ -396,6 +448,7 @@ src/blocks/variables.ts        Local-variable blocks + the Variables flyout
 src/blocks/loops.ts            Loops whose variable is a draggable oval
 src/blocks/names.ts            Identifier rules + the refilling name socket
 src/blocks/hoisting.ts         Tidies code from Blockly's stock blocks
+src/blocks/classes.ts          Class, method and property blocks
 src/blocks/turtle.ts           Turtle graphics blocks
 src/python/turtle-shim.ts      A `turtle` module for Pyodide, which has no tkinter
 src/project/migrate.ts         Walks older saved projects forward

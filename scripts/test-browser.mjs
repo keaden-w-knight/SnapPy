@@ -164,6 +164,14 @@ const TURTLE = program([{
   } },
 }]);
 
+// A method with no inputs of its own: `self` should be added for it.
+const CLASS_AUTO_SELF = program([{
+  type: 'snappy_class_def', x: 40, y: 40, fields: { NAME: 'Dog' },
+  inputs: { BODY: { block: {
+    type: 'snappy_method_def', fields: { NAME: 'speak' }, extraState: { params: [] },
+  } } },
+}]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -640,7 +648,16 @@ try {
   })()`);
   check('the turtle marker is drawn', turtleShown > 20, `${turtleShown} pixels`);
 
-  // Without the module the stage stays out of the way.
+  // The stage follows the import, not the palette: turtle blocks available but
+  // unused should not cost a pane.
+  await loadProgram(HELLO, ['turtle']);
+  check('the turtle category is still available',
+    (await evaluate(
+      "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
+      .includes('Turtle'));
+  check('the stage is hidden when nothing imports turtle',
+    (await evaluate("document.querySelector('#stage-pane').hidden")) === true);
+
   await loadProgram(HELLO);
   check('the stage is hidden when the module is off',
     (await evaluate("document.querySelector('#stage-pane').hidden")) === true);
@@ -648,6 +665,52 @@ try {
     !(await evaluate(
       "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
       .includes('Turtle'));
+  // 16. Classes: their own category, and a definition inside one becomes a
+  // method -- self added for you, special methods offered.
+  await loadProgram(CLASS_AUTO_SELF);
+  check('classes have their own category',
+    (await evaluate(
+      "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
+      .includes('Classes'));
+
+  const withSelf = await waitFor('self to be added to the method', `(() => {
+    const code = document.querySelector('#code .cm-content')?.textContent ?? '';
+    return code.includes('def speak(self):') ? code : null;
+  })()`, 15000);
+  check('a definition inside a class gains self', true, JSON.stringify(withSelf.trim()));
+  check('the class wraps its method',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('class Dog:'));
+
+  check('the method offers the special-method menu',
+    (await evaluate(`(() => {
+      const ws = window.snappy.workspace;
+      const method = ws.getAllBlocks(false).find((b) => b.type === 'snappy_method_def');
+      return !!(method && method.getField('SPECIAL'));
+    })()`)) === true);
+
+  check('a standalone definition has no special-method menu',
+    (await evaluate(`(() => {
+      const ws = window.snappy.workspace;
+      const def = ws.newBlock('snappy_function_def');
+      const has = !!def.getField('SPECIAL');
+      def.dispose(false);
+      return has;
+    })()`)) === false);
+
+  // Dragging a method out of the class makes it an ordinary function again.
+  await evaluate(`(() => {
+    const ws = window.snappy.workspace;
+    const method = ws.getAllBlocks(false).find((b) => b.type === 'snappy_method_def');
+    method.previousConnection.disconnect();
+    method.moveBy(0, 320);
+  })()`);
+  await waitFor('the menu to go away', `(() => {
+    const ws = window.snappy.workspace;
+    const method = ws.getAllBlocks(false).find((b) => b.type === 'snappy_method_def');
+    return method && !method.getField('SPECIAL') ? 'gone' : null;
+  })()`, 15000);
+  check('leaving the class removes the special-method menu', true);
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

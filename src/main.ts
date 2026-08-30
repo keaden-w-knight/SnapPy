@@ -5,6 +5,7 @@ import { scratchTheme } from './blocks/theme';
 import { buildToolbox, MODULES, MODULES_CATEGORY } from './blocks/toolbox';
 import { registerFunctionsCategory } from './blocks/functions';
 import { registerVariablesCategory } from './blocks/variables';
+import { registerClassesCategory } from './blocks/classes';
 import { buildLineMap } from './blocks/sourcemap';
 import { errorLine } from './python/traceback';
 import { clearErrorHighlight, showErrorBlock } from './ui/error-highlight';
@@ -58,6 +59,7 @@ const workspace = Blockly.inject($('#blocks'), {
 
 registerFunctionsCategory(workspace);
 registerVariablesCategory(workspace);
+registerClassesCategory(workspace);
 
 /**
  * The module picker. Turning one on appends its category to the palette rather
@@ -65,8 +67,17 @@ registerVariablesCategory(workspace);
  */
 function applyModules() {
   workspace.updateToolbox(buildToolbox(modules));
-  $('#stage-pane').hidden = !modules.includes('turtle');
-  stage.setVisible(modules.includes('turtle'));
+}
+
+/**
+ * The stage appears when the program actually imports turtle, not merely when
+ * the blocks are in the palette -- having the category available should not cost
+ * a pane you are not drawing in.
+ */
+function applyStageVisibility() {
+  const drawing = code.includes('import turtle');
+  $('#stage-pane').hidden = !drawing;
+  stage.setVisible(drawing);
 }
 
 for (const name of MODULES) {
@@ -114,6 +125,7 @@ function renderProjectLabel() {
 function regenerate() {
   code = pythonGenerator.workspaceToCode(workspace);
   codePane.setCode(code || '# Drag blocks to build a program.');
+  applyStageVisibility();
   refreshButtons();
 }
 

@@ -29,12 +29,39 @@ export interface FunctionParam {
   type: ParamType;
 }
 
+export type CallableKind = 'function' | 'method' | 'class';
+
 export interface FunctionDef {
   name: string;
   params: FunctionParam[];
+  kind: CallableKind;
+  /** For a method, the class it belongs to. */
+  owner?: string;
 }
 
+/** Standalone definition: wears a hat, so nothing stacks onto it. */
 const DEF_BLOCK = 'snappy_function_def';
+/** The same thing shaped as a statement, so it can sit inside a class body. */
+export const METHOD_BLOCK = 'snappy_method_def';
+/** Declared here rather than imported, to keep classes.ts the only dependent. */
+export const CLASS_BLOCK = 'snappy_class_def';
+
+/**
+ * The special methods worth offering. Python has many more, but a menu of forty
+ * is not a menu; these are the ones a class in a lesson actually defines.
+ */
+const SPECIAL_METHODS = [
+  '__init__', '__str__', '__repr__', '__len__', '__eq__', '__lt__',
+  '__add__', '__call__', '__getitem__', '__setitem__', '__contains__', '__iter__',
+];
+
+/** The class a block sits inside, if any. */
+export function enclosingClass(block: Blockly.Block): string | null {
+  for (let current = block.getSurroundParent(); current; current = current.getSurroundParent()) {
+    if (current.type === CLASS_BLOCK) return toIdentifier(current.getFieldValue('NAME'));
+  }
+  return null;
+}
 
 const GETTER_FOR: Record<ParamType, string> = {
   value: 'snappy_local_get',
@@ -90,6 +117,8 @@ function syncParameters(this: DefBlock, event: Blockly.Events.Abstract) {
   if (this.isInFlyout || !this.workspace || this.isDeadOrDying()) return;
   if ((this.workspace as Blockly.WorkspaceSvg).isDragging?.()) return;
 
+  syncClassMembership(this);
+
   const previousGroup = Blockly.Events.getGroup();
   Blockly.Events.setGroup(event.group || true);
   try {
@@ -111,25 +140,41 @@ function syncParameters(this: DefBlock, event: Blockly.Events.Abstract) {
   }
 }
 
-Blockly.Blocks[DEF_BLOCK] = {
-  params_: [] as FunctionParam[],
+/**
+ * Shared by both definition shapes.
+ *
+ * A standalone definition wears a hat so nothing can be stacked onto it -- it
+ * starts something rather than continuing a sequence. The inline one is an
+ * ordinary statement, which is what lets it sit inside a class body.
+ */
+function initDefinition(block: DefBlock, inline: boolean) {
+  block.appendDummyInput('HEADER')
+    .appendField(inline ? 'method' : 'to')
+    .appendField(new Blockly.FieldTextInput('do_something', toIdentifier), 'NAME');
+  block.appendDummyInput('ADD').appendField(
+    new Blockly.FieldImage(PLUS_ICON, 20, 20, 'add input', () => block.addParameter_()),
+    'ADD_BUTTON',
+  );
+  block.appendStatementInput('DO').appendField('do');
+  block.setInputsInline(true);
 
-  init(this: DefBlock) {
-    this.appendDummyInput('HEADER')
-      .appendField('to')
-      .appendField(new Blockly.FieldTextInput('do_something', toIdentifier), 'NAME');
-    this.appendDummyInput('ADD').appendField(
-      new Blockly.FieldImage(PLUS_ICON, 20, 20, 'add input', () => this.addParameter_()),
-      'ADD_BUTTON',
-    );
-    this.appendStatementInput('DO').appendField('do');
-    this.setInputsInline(true);
-    this.setStyle('procedure_blocks');
-    this.setTooltip('Define a function. Drag its inputs into the body to use them.');
-    // Registered explicitly: Blockly wires onchange during doInit_, which runs
-    // before this definition's own properties would otherwise be consulted.
-    this.setOnChange(syncParameters);
-  },
+  if (inline) {
+    block.setPreviousStatement(true);
+    block.setNextStatement(true);
+    block.setStyle('class_member_blocks');
+    block.setTooltip('Define a method. Inside a class it gains self and the special methods.');
+  } else {
+    block.setStyle('definition_blocks');
+    block.setTooltip('Define a function. Drag its inputs into the body to use them.');
+  }
+
+  // Registered explicitly: Blockly wires onchange during doInit_, which runs
+  // before this definition's own properties would otherwise be consulted.
+  block.setOnChange(syncParameters);
+}
+
+const DEFINITION_MIXIN = {
+  params_: [] as FunctionParam[],
 
   saveExtraState(this: DefBlock) {
     return { params: this.params_ };
@@ -140,7 +185,13 @@ Blockly.Blocks[DEF_BLOCK] = {
   },
 
   getFunctionDef(this: DefBlock): FunctionDef {
-    return { name: toIdentifier(this.getFieldValue('NAME')), params: [...this.params_] };
+    const owner = enclosingClass(this);
+    return {
+      name: toIdentifier(this.getFieldValue('NAME')),
+      params: [...this.params_],
+      kind: owner ? 'method' : 'function',
+      ...(owner ? { owner } : {}),
+    };
   },
 
   /**
@@ -235,17 +286,92 @@ Blockly.Blocks[DEF_BLOCK] = {
   },
 };
 
-// --- looking functions up ---------------------------------------------------
+/**
+ * A definition inside a class is a method: Python passes the instance as the
+ * first argument, so `self` is added for you rather than being something to
+ * remember, and the special methods become available by name.
+ */
+function syncClassMembership(block: DefBlock) {
+  const inClass = enclosingClass(block) !== null;
+  const header = block.getInput('HEADER');
+  const hasMenu = !!block.getField('SPECIAL');
 
-export function listFunctions(workspace: Blockly.Workspace): FunctionDef[] {
-  return workspace
-    .getBlocksByType(DEF_BLOCK, false)
-    .map((block) => (block as DefBlock).getFunctionDef())
-    .filter((def) => def.name);
+  if (inClass && !hasMenu && header) {
+    header.insertFieldAt(2, specialMethodMenu(), 'SPECIAL');
+  } else if (!inClass && hasMenu && header) {
+    header.removeField('SPECIAL');
+  }
+
+  if (inClass && block.params_[0]?.name !== 'self') {
+    block.updateShape_([{ name: 'self', type: 'value' }, ...block.params_]);
+  }
 }
 
+/** Acts as a menu rather than a value: picking an entry writes it into NAME. */
+function specialMethodMenu(): Blockly.FieldDropdown {
+  return new Blockly.FieldDropdown(
+    () => [
+      ['special…', ''],
+      ...SPECIAL_METHODS.map((name) => [name, name] as [string, string]),
+    ],
+    function (this: Blockly.FieldDropdown, value: string) {
+      if (value) this.getSourceBlock()?.setFieldValue(value, 'NAME');
+      return ''; // fall back to the prompt; the choice lives in NAME
+    },
+  );
+}
+
+Blockly.Blocks[DEF_BLOCK] = {
+  ...DEFINITION_MIXIN,
+  init(this: DefBlock) {
+    initDefinition(this, false);
+  },
+};
+
+Blockly.Blocks[METHOD_BLOCK] = {
+  ...DEFINITION_MIXIN,
+  init(this: DefBlock) {
+    initDefinition(this, true);
+  },
+};
+
+// --- looking callables up ---------------------------------------------------
+
+/** A class is callable too: calling it builds an instance. */
+function classDef(block: Blockly.Block, methods: FunctionDef[]): FunctionDef {
+  const name = toIdentifier(block.getFieldValue('NAME'));
+  const constructor = methods.find(
+    (method) => method.owner === name && method.name === '__init__',
+  );
+  return {
+    name,
+    // Constructing takes __init__'s inputs, minus the instance it is handed.
+    params: (constructor?.params ?? []).filter((param) => param.name !== 'self'),
+    kind: 'class',
+  };
+}
+
+/** Every function, method and class the workspace defines. */
+export function listFunctions(workspace: Blockly.Workspace): FunctionDef[] {
+  const functions = workspace
+    .getBlocksByType(DEF_BLOCK, false)
+    .map((block) => (block as DefBlock).getFunctionDef());
+  const methods = workspace
+    .getBlocksByType(METHOD_BLOCK, false)
+    .map((block) => (block as DefBlock).getFunctionDef());
+  const classes = workspace
+    .getBlocksByType(CLASS_BLOCK, false)
+    .map((block) => classDef(block, methods));
+
+  return [...functions, ...classes, ...methods].filter((def) => def.name);
+}
+
+/** How a method is named in the call dropdown, e.g. `Dog.speak`. */
+export const qualify = (def: FunctionDef) =>
+  def.kind === 'method' && def.owner ? `${def.owner}.${def.name}` : def.name;
+
 export function findFunction(name: string, workspace: Blockly.Workspace): FunctionDef | null {
-  return listFunctions(workspace).find((def) => def.name === name) ?? null;
+  return listFunctions(workspace).find((def) => qualify(def) === name) ?? null;
 }
 
 // --- call blocks ------------------------------------------------------------
@@ -259,6 +385,7 @@ const NONE_DEFINED = 'define a function first';
 interface CallBlock extends Blockly.Block {
   params_: FunctionParam[];
   updateShape_(params: FunctionParam[]): void;
+  setTargetKind_(kind: CallableKind): void;
 }
 
 function functionOptions(this: Blockly.Field): Blockly.MenuOption[] {
@@ -268,7 +395,7 @@ function functionOptions(this: Blockly.Field): Blockly.MenuOption[] {
   // A block in the flyout belongs to the flyout's own workspace, which holds
   // only palette samples; ask the one it will be dropped into.
   const workspace = owner?.isFlyout ? owner.targetWorkspace : owner;
-  const names = workspace ? listFunctions(workspace).map((def) => def.name) : [];
+  const names = workspace ? listFunctions(workspace).map(qualify) : [];
   names.sort((a, b) => a.localeCompare(b));
 
   if (!names.length) return [[NONE_DEFINED, UNSET]];
@@ -333,6 +460,17 @@ const CALL_MIXIN = {
    * carried across by parameter name, so renaming one input does not detach
    * values plugged into the others.
    */
+  /** A method call needs somewhere to send it; a plain call does not. */
+  setTargetKind_(this: CallBlock, kind: CallableKind) {
+    const wantsObject = kind === 'method';
+    if (wantsObject && !this.getInput('ON')) {
+      this.appendValueInput('ON').appendField('on');
+      if (this.params_.length) this.moveInputBefore('ON', argInput(0));
+    } else if (!wantsObject && this.getInput('ON')) {
+      this.removeInput('ON', true);
+    }
+  },
+
   updateShape_(this: CallBlock, params: FunctionParam[]) {
     if (sameParams(params, this.params_)) return;
 
@@ -368,7 +506,9 @@ const CALL_MIXIN = {
       return;
     }
     this.setWarningText(null);
-    this.updateShape_(def.params);
+    // The instance is passed by Python, so it is never an argument to fill in.
+    this.updateShape_(def.params.filter((param) => param.name !== 'self'));
+    this.setTargetKind_(def.kind);
   },
 };
 
@@ -453,6 +593,17 @@ pythonGenerator.forBlock[DEF_BLOCK] = (block, generator) => {
   return null;
 };
 
+pythonGenerator.forBlock[METHOD_BLOCK] = (block, generator) => {
+  const def = (block as DefBlock).getFunctionDef();
+  const params = def.params.map((param) => toIdentifier(param.name)).join(', ');
+  const body = generator.statementToCode(block, 'DO') || `${generator.INDENT}pass
+`;
+  // Emitted in place rather than hoisted, so it lands inside the class body.
+  return `def ${toIdentifier(def.name)}(${params}):
+${body}
+`;
+};
+
 pythonGenerator.forBlock['snappy_return'] = (block) => {
   const value = pythonGenerator.valueToCode(block, 'VALUE', Order.NONE);
   return value ? `return ${value}\n` : 'return\n';
@@ -461,10 +612,19 @@ pythonGenerator.forBlock['snappy_return'] = (block) => {
 function callExpression(block: Blockly.Block): string | null {
   const chosen = block.getFieldValue('NAME');
   if (!chosen) return null;
+
   const params = (block as CallBlock).params_ ?? [];
   const args = params.map(
     (_, i) => pythonGenerator.valueToCode(block, argInput(i), Order.NONE) || 'None',
   );
+
+  // `Owner.method` in the dropdown becomes `object.method(...)` in the code.
+  const dot = chosen.indexOf('.');
+  if (dot !== -1 && block.getInput('ON')) {
+    const target = pythonGenerator.valueToCode(block, 'ON', Order.MEMBER) || 'self';
+    return `${target}.${toIdentifier(chosen.slice(dot + 1))}(${args.join(', ')})`;
+  }
+
   return `${procedureName(chosen)}(${args.join(', ')})`;
 }
 
@@ -486,6 +646,7 @@ export const FUNCTIONS_CATEGORY = 'SNAPPY_FUNCTIONS';
 export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
   workspace.registerToolboxCategoryCallback(FUNCTIONS_CATEGORY, () => [
     { kind: 'block', type: DEF_BLOCK },
+    { kind: 'block', type: METHOD_BLOCK },
     { kind: 'block', type: 'snappy_call' },
     { kind: 'block', type: 'snappy_call_value' },
     { kind: 'block', type: 'snappy_return' },

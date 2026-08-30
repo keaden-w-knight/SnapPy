@@ -18,6 +18,7 @@ const SCRATCH = {
   functions: '#FF6680',
   // Scratch's Motion blue, unused until now because SnapPy has no sprites.
   turtle: '#4C97FF',
+  classes: '#CF63CF', // Scratch's Sound magenta, otherwise unused
 } as const;
 
 /** Scratch draws block outlines a fixed step darker than the fill. */
@@ -62,6 +63,11 @@ export const scratchTheme = Blockly.Theme.defineTheme('snappy-scratch', {
     variable_dynamic_blocks: style(SCRATCH.variables),
     list_blocks: style(SCRATCH.lists),
     procedure_blocks: style(SCRATCH.functions),
+    // Definitions wear a hat: they start something rather than continue it, so
+    // nothing can be stacked on top of them.
+    definition_blocks: style(SCRATCH.functions, 'cap'),
+    class_blocks: style(SCRATCH.classes, 'cap'),
+    class_member_blocks: style(SCRATCH.classes),
     turtle_blocks: style(SCRATCH.turtle),
   },
   categoryStyles: {
@@ -74,6 +80,7 @@ export const scratchTheme = Blockly.Theme.defineTheme('snappy-scratch', {
     list_category: { colour: SCRATCH.lists },
     procedure_category: { colour: SCRATCH.functions },
     turtle_category: { colour: SCRATCH.turtle },
+    class_category: { colour: SCRATCH.classes },
     module_category: { colour: '#8E9AAF' },
   },
   componentStyles: {
