@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import * as Blockly from 'blockly/core';
 import { pythonGenerator } from 'blockly/python';
 import '../src/blocks/blocks';
-import { listFunctions, qualify } from '../src/blocks/functions';
+import { listFunctions, parameterSlot, qualify, removeParameter } from '../src/blocks/functions';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {
@@ -188,6 +188,98 @@ const DOG = [{
   check('a method call goes through its object', code.includes('rex.speak()'),
     JSON.stringify(code.trim()));
   check('a method call -> valid Python', isValidPython(code));
+}
+
+// --- editing and removing parameters ----------------------------------------
+
+{
+  ws.clear();
+  Blockly.serialization.workspaces.load({ blocks: { languageVersion: 0, blocks: [{
+    type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'greet' },
+    extraState: { params: [param('who'), param('loud')] },
+    inputs: {
+      PARAM0: oval('who'),
+      PARAM1: oval('loud'),
+      DO: { block: { type: 'snappy_print', inputs: {
+        VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'who' } } } } } },
+    },
+  }] } } as never, ws);
+
+  const def = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def')!;
+  const slotted = ws.getAllBlocks(false).find(
+    (b) => b.type === 'snappy_local_get' && b.getParent() === def)!;
+
+  check('a name oval in a definition socket is a parameter',
+    parameterSlot(slotted)?.index === 0, JSON.stringify(parameterSlot(slotted)?.index));
+
+  const looseOval = ws.newBlock('snappy_local_get');
+  check('a loose oval is not a parameter', parameterSlot(looseOval) === null);
+  looseOval.dispose(false);
+
+  removeParameter(def as never, 1);
+  check('removing a parameter drops it from the definition',
+    pythonGenerator.workspaceToCode(ws).includes('def greet(who):'),
+    JSON.stringify(pythonGenerator.workspaceToCode(ws).trim()));
+  check('the removed socket is gone', !def.getInput('PARAM1'));
+}
+
+{
+  // Renaming has to carry the body's uses with it, or the function breaks
+  // silently: the signature changes and the body still says the old name.
+  ws.clear();
+  Blockly.serialization.workspaces.load({ blocks: { languageVersion: 0, blocks: [{
+    type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'greet' },
+    extraState: { params: [param('who')] },
+    inputs: {
+      PARAM0: oval('who'),
+      DO: { block: { type: 'snappy_print', inputs: {
+        VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'who' } } } } } },
+    },
+  }] } } as never, ws);
+
+  const def = ws.getAllBlocks(false).find(
+    (b) => b.type === 'snappy_function_def') as Blockly.Block & {
+      params_: { name: string; type: string }[];
+      updateShape_(p: unknown[]): void;
+    };
+
+  // What the edit dialog does once the user confirms.
+  for (const block of def.getDescendants(false)) {
+    if (block.type === 'snappy_local_get' && block.getFieldValue('NAME') === 'who') {
+      block.setFieldValue('name', 'NAME');
+    }
+  }
+  def.updateShape_([{ name: 'name', type: 'boolean' }]);
+
+  const code = pythonGenerator.workspaceToCode(ws);
+  check('renaming a parameter renames its uses',
+    code.includes('def greet(name):') && code.includes('print(name)'),
+    JSON.stringify(code.trim()));
+  check('the old name is gone from the body', !code.includes('who'));
+  check('changing the type reshapes the socket',
+    JSON.stringify(def.getInput('PARAM0')?.connection?.getCheck()) === '["Boolean"]',
+    JSON.stringify(def.getInput('PARAM0')?.connection?.getCheck()));
+}
+
+{
+  // The hexagonal return, for a function that answers a question.
+  const code = gen([{
+    type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'is_ready' },
+    extraState: { params: [] },
+    inputs: { DO: { block: { type: 'snappy_return_boolean',
+      inputs: { VALUE: { block: { type: 'logic_boolean', fields: { BOOL: 'TRUE' } } } } } } },
+  }]);
+  check('the hexagonal return generates the same statement',
+    code.includes('return True'), JSON.stringify(code.trim()));
+  check('hexagonal return -> valid Python', isValidPython(code));
+
+  const ret = ws.getAllBlocks(false).find((b) => b.type === 'snappy_return_boolean')!;
+  check('its socket only takes a boolean',
+    JSON.stringify(ret.getInput('VALUE')?.connection?.getCheck()) === '["Boolean"]');
+
+  const plain = ws.newBlock('snappy_return');
+  check('the ordinary return still takes anything',
+    plain.getInput('VALUE')?.connection?.getCheck() === null);
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall passed');
