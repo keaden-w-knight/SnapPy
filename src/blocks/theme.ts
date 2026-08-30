@@ -16,6 +16,8 @@ const SCRATCH = {
   variables: '#FF8C1A',
   lists: '#FF661A',
   functions: '#FF6680',
+  // Scratch's Motion blue, unused until now because SnapPy has no sprites.
+  turtle: '#4C97FF',
 } as const;
 
 /** Scratch draws block outlines a fixed step darker than the fill. */
@@ -60,6 +62,7 @@ export const scratchTheme = Blockly.Theme.defineTheme('snappy-scratch', {
     variable_dynamic_blocks: style(SCRATCH.variables),
     list_blocks: style(SCRATCH.lists),
     procedure_blocks: style(SCRATCH.functions),
+    turtle_blocks: style(SCRATCH.turtle),
   },
   categoryStyles: {
     event_category: { colour: SCRATCH.events },
@@ -70,6 +73,8 @@ export const scratchTheme = Blockly.Theme.defineTheme('snappy-scratch', {
     variable_category: { colour: SCRATCH.variables },
     list_category: { colour: SCRATCH.lists },
     procedure_category: { colour: SCRATCH.functions },
+    turtle_category: { colour: SCRATCH.turtle },
+    module_category: { colour: '#8E9AAF' },
   },
   componentStyles: {
     workspaceBackgroundColour: '#F9F9F9',

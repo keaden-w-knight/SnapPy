@@ -70,6 +70,9 @@ export class PyodideBackend implements PythonBackend {
       case 'out':
         this.events.onOutput(msg.text, msg.stream);
         break;
+      case 'draw':
+        this.events.onDraw?.(msg.op, msg.args);
+        break;
       case 'stdin-request':
         this.setState('awaiting-input');
         break;
