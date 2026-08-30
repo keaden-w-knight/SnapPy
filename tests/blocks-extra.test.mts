@@ -83,6 +83,56 @@ const greetDef = {
   check('ordinary variables are still hoisted', code.includes('score = None'));
 }
 
+{
+  // A global variable used only at the top level must not appear inside a
+  // function that never mentions it.
+  const code = gen(
+    [
+      { type: 'procedures_defnoreturn', x: 0, y: 0, fields: { NAME: 'greet' },
+        inputs: { STACK: { block: { type: 'snappy_print', inputs: { VALUE: text('hi') } } } } },
+      { type: 'variables_set', x: 0, y: 300, fields: { VAR: { id: 'xId' } },
+        inputs: { VALUE: numb(1) } },
+    ],
+    [{ name: 'x', id: 'xId' }],
+  );
+  check('unreferenced globals are not declared inside a function',
+    !code.includes('global x'), JSON.stringify(code.trim()));
+  check('global narrowing -> valid Python', isValidPython(code));
+}
+
+{
+  // A variable the function actually assigns still needs its global.
+  const code = gen(
+    [
+      { type: 'procedures_defnoreturn', x: 0, y: 0, fields: { NAME: 'bump' },
+        inputs: { STACK: { block: { type: 'variables_set',
+          fields: { VAR: { id: 'xId' } }, inputs: { VALUE: numb(2) } } } } },
+      { type: 'variables_set', x: 0, y: 300, fields: { VAR: { id: 'xId' } },
+        inputs: { VALUE: numb(1) } },
+    ],
+    [{ name: 'x', id: 'xId' }],
+  );
+  check('a global the function assigns keeps its declaration',
+    code.includes('global x'), JSON.stringify(code.trim()));
+}
+
+{
+  // Two globals, only one referenced: the other is dropped from the list.
+  const code = gen(
+    [
+      { type: 'procedures_defnoreturn', x: 0, y: 0, fields: { NAME: 'bump' },
+        inputs: { STACK: { block: { type: 'variables_set',
+          fields: { VAR: { id: 'aId' } }, inputs: { VALUE: numb(2) } } } } },
+      { type: 'variables_set', x: 0, y: 300, fields: { VAR: { id: 'bId' } },
+        inputs: { VALUE: numb(1) } },
+    ],
+    [{ name: 'a', id: 'aId' }, { name: 'b', id: 'bId' }],
+  );
+  check('only the referenced global is declared',
+    code.includes('global a') && !code.includes('global a, b') && !code.includes('global b'),
+    JSON.stringify(code.trim()));
+}
+
 // --- local variables --------------------------------------------------------
 
 check('identifier: spaces and punctuation', toIdentifier('my var!') === 'my_var_', toIdentifier('my var!'));

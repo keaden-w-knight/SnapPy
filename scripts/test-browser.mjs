@@ -96,6 +96,16 @@ const BOOM = program([{
   } },
 }]);
 
+// A call block with nothing defined to call.
+const NO_FUNCTIONS_YET = program([{ type: 'snappy_call', x: 40, y: 40 }]);
+
+// A function exists, but this call has not chosen one yet.
+const UNCHOSEN_CALL = program([
+  { type: 'procedures_defnoreturn', x: 40, y: 40, fields: { NAME: 'greet' },
+    inputs: { STACK: { block: { type: 'snappy_print', inputs: { VALUE: text('hi') } } } } },
+  { type: 'snappy_call', x: 40, y: 260 },
+]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -145,8 +155,12 @@ async function loadProgram(workspace) {
   await evaluate(
     `localStorage.setItem('snappy.workspace.v1', ${JSON.stringify(JSON.stringify(workspace))})`,
   );
+  // A sentinel on the old document: if it survives, the reload never happened
+  // and every later assertion would be reading a stale page.
+  await evaluate('window.__snappyReloadSentinel = true');
   await send('Page.reload', { ignoreCache: false });
-  await sleep(1500);
+  await waitFor('the page to actually reload',
+    "(() => window.__snappyReloadSentinel === undefined || null)()", 30000);
   await waitFor('Python ready', READY, 180000);
 }
 
@@ -205,6 +219,12 @@ try {
         const { res, rej } = pending.get(m.id);
         pending.delete(m.id);
         m.error ? rej(new Error(m.error.message)) : res(m.result);
+        return;
+      }
+      // The app guards unsaved work with beforeunload; left unanswered the
+      // dialog blocks navigation and the harness reads a stale page.
+      if (m.method === 'Page.javascriptDialogOpening') {
+        void send('Page.handleJavaScriptDialog', { accept: true });
       }
     });
   });
@@ -329,6 +349,45 @@ try {
   await waitFor('highlight cleared on re-run',
     "(() => document.querySelectorAll('.snappy-error-block').length === 0 || null)()", 20000);
   check('re-running clears the previous highlight', true);
+  // 10. The dropdown reads correctly and keeps its selection.
+  // Asserted on placed blocks rather than flyout contents: the flyout is opened
+  // by a DOM click whose timing is fussy, while a placed block is just there.
+  // Blockly renders field text with non-breaking spaces so SVG will not collapse
+  // them, so a plain phrase match silently fails. Normalise all whitespace.
+  const blockText =
+    "[...document.querySelectorAll('#blocks text')].map((t) => t.textContent)" +
+    ".join(' ').replace(/\\s+/g, ' ')";
+
+  // waitFor, not a bare read: block rendering lags the "Ready" status slightly.
+  await loadProgram(NO_FUNCTIONS_YET);
+  check('with no functions the block says so',
+    !!(await waitFor('placeholder label',
+      `(() => ${blockText}.includes('define a function first') || null)()`, 15000)));
+
+  await loadProgram(UNCHOSEN_CALL);
+  check('with functions available it prompts to choose',
+    !!(await waitFor('prompt label',
+      `(() => ${blockText}.includes('select a function') || null)()`, 15000)));
+
+  // The selection used to revert to the placeholder when the option list was
+  // regenerated while empty. Reloading, then editing, exercises both moments.
+  await loadProgram(FUNCTIONS);
+  check('a chosen function survives a reload',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('greet()'));
+  check('the chosen name is shown, not the placeholder',
+    !(await evaluate(blockText)).includes('define a function first'),
+    JSON.stringify((await evaluate(blockText)).slice(0, 80)));
+
+  await evaluate(`(() => {
+    const svg = document.querySelector('#blocks svg');
+    svg.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 }));
+    svg.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 5, clientY: 5 }));
+  })()`);
+  await sleep(1000);
+  check('the selection survives a workspace interaction',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('greet()'));
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

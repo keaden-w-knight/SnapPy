@@ -145,6 +145,41 @@ parameter name, so renaming one parameter does not detach values plugged into th
 others. A call whose function has been deleted keeps its name and shows a warning
 rather than silently retargeting itself.
 
+The menu reads `select a function` when nothing has been picked, and
+`define a function first` when there is nothing to pick -- the latter being the
+only entry, and choosing it a no-op.
+
+Blockly's stock `FieldDropdown` fights all of this in three ways, so
+`FunctionNameField` overrides each:
+
+- It **rejects any value absent from the current option list** and falls back to
+  the first option. The list is empty while a call block is deserialised ahead of
+  its definition, so a chosen function silently reverted to the placeholder.
+  Here the stored name is authoritative and a dangling one becomes a warning.
+- It **caches the generated option list**, first built inside the field
+  constructor before the field has a source block -- so it cached "no functions"
+  and served that forever. The cache is bypassed.
+- It **caches the display label** in `selectedOption_` when the value is set,
+  which likewise froze at the placeholder. The label is derived from the live
+  options instead.
+
+## Why a global appears inside every function
+
+Blockly's Python generator emits `global a, b` at the top of a function for every
+workspace variable that is not one of that function's parameters -- with no check
+on whether the body mentions them. Define any global anywhere and its name shows
+up inside every function, reading as though the function uses it.
+
+Names the body never references are now narrowed away. A `global` for a variable
+that is only read is a no-op, and one for a variable that is never touched is
+pure noise, so dropping them cannot change behaviour; a variable the function
+actually assigns keeps its declaration.
+
+Separately, Blockly hoists `name = None` for every variable the workspace uses.
+That one is deliberate -- it stops a read-before-assign becoming a `NameError` --
+so it stays, except for function parameters, which are local by definition and
+never needed a module-level declaration.
+
 ## Variables: global and local
 
 Blockly's variables are all workspace-global -- a throwaway counter inside one
