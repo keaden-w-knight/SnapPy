@@ -148,6 +148,23 @@ export function installDialogs({ onClosed }: { onClosed?: () => void } = {}) {
   });
 }
 
+/** A plain question with a confirm button, for actions the app initiates. */
+export function askToConfirm(options: {
+  message: string;
+  okLabel: string;
+  onConfirm(): void;
+}) {
+  open({
+    message: options.message,
+    okLabel: options.okLabel,
+    showInput: false,
+    showCancel: true,
+    onClose: (result) => {
+      if (result !== null) options.onConfirm();
+    },
+  });
+}
+
 /**
  * A name plus a choice of kind, used by the function block's "add input" button.
  * Kept here so every modal in the app looks and behaves the same.

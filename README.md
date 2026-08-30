@@ -472,6 +472,23 @@ Three things that are easy to get wrong:
 - **Turn Rocket Loader off** for the hostname. It defers and rewrites script
   tags, which module workers do not survive.
 
+### Updating a deployed site
+
+Push to `main`. Cloudflare rebuilds and redeploys on its own; there is nothing
+else to run.
+
+### The desktop download button
+
+The header offers the desktop build to anyone on the web version, and hides
+itself inside the desktop app, where the offer would be nonsense. It points at
+the repository's releases by default; set a `VITE_DESKTOP_DOWNLOAD_URL` build
+variable to send it somewhere else, such as an R2 bucket, without touching code.
+
+Installers come from `npm run desktop:build`, which writes them to
+`src-tauri/target/release/bundle/`. Attaching those to a GitHub release is
+enough -- a bucket buys nothing here, since releases are already versioned,
+free, and have a stable "latest" URL.
+
 `npm run test:build` checks the built artifact before you ship it: that
 `dist/_headers` really carries both policies, that the Pyodide and Blockly assets
 were published, and that the built page boots an interpreter and runs a program.

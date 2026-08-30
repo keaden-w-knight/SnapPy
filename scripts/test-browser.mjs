@@ -776,6 +776,25 @@ try {
     `${before} -> ${withStage}`);
   check('hiding the stage restores the original sizes', after === before,
     `${before} -> ${withStage} -> ${after}`);
+  // 19. The desktop download offer, which only makes sense in a browser.
+  await loadProgram(HELLO);
+  check('the desktop download button is offered', (await evaluate(isOnScreen('#download'))) === true);
+
+  await evaluate("document.querySelector('#download').click()");
+  await waitFor('the download prompt',
+    "document.querySelector('.snappy-dialog') ? 'shown' : null", 10000);
+  const prompt = await evaluate(
+    "document.querySelector('.snappy-dialog-message')?.textContent ?? ''");
+  check('it explains what the desktop version gives you',
+    prompt.includes('your own Python'), JSON.stringify(prompt.slice(0, 70)));
+  check('it names a platform', /Windows|macOS|Linux|your computer/.test(prompt));
+
+  // Dismissing must not navigate away.
+  await evaluate(`document.querySelector('.snappy-dialog [data-act="cancel"]').click()`);
+  await waitFor('the prompt to close',
+    "document.querySelector('.snappy-dialog') ? null : 'closed'", 10000);
+  check('cancelling closes the prompt and stays put',
+    (await evaluate('location.pathname')) === '/');
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;
