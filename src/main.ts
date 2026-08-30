@@ -2,7 +2,7 @@ import * as Blockly from 'blockly/core';
 import { pythonGenerator } from 'blockly/python';
 import './blocks/blocks';
 import { scratchTheme } from './blocks/theme';
-import { toolbox } from './blocks/toolbox';
+import { buildToolbox, MODULES, MODULES_CATEGORY } from './blocks/toolbox';
 import { registerFunctionsCategory } from './blocks/functions';
 import { registerVariablesCategory } from './blocks/variables';
 import { buildLineMap } from './blocks/sourcemap';
@@ -17,6 +17,7 @@ import { FORMAT_VERSION, parse, serialize } from './project/format';
 import { migrateWorkspace } from './project/migrate';
 import { ConsolePane } from './ui/console';
 import { createCodePane } from './ui/codepane';
+import { createStage } from './ui/stage';
 import './style.css';
 
 const AUTOSAVE_KEY = 'snappy.workspace.v1';
@@ -39,8 +40,13 @@ const projectIO = createProjectIO();
 // up renames, which Blockly applies inside the dialog's own callback.
 installDialogs({ onClosed: () => noteWorkspaceChanged() });
 
+/** Modules whose blocks are in the palette. Saved with the project. */
+let modules: string[] = [];
+
+const stage = createStage($('#stage'));
+
 const workspace = Blockly.inject($('#blocks'), {
-  toolbox,
+  toolbox: buildToolbox(modules),
   theme: scratchTheme,
   renderer: 'zelos', // Blockly's Scratch-shaped renderer.
   media: '/blockly-media/',
@@ -52,6 +58,34 @@ const workspace = Blockly.inject($('#blocks'), {
 
 registerFunctionsCategory(workspace);
 registerVariablesCategory(workspace);
+
+/**
+ * The module picker. Turning one on appends its category to the palette rather
+ * than showing every library at once, which would bury the core blocks.
+ */
+function applyModules() {
+  workspace.updateToolbox(buildToolbox(modules));
+  $('#stage-pane').hidden = !modules.includes('turtle');
+  stage.setVisible(modules.includes('turtle'));
+}
+
+for (const name of MODULES) {
+  workspace.registerButtonCallback(`SNAPPY_TOGGLE_${name}`, () => {
+    modules = modules.includes(name)
+      ? modules.filter((other) => other !== name)
+      : [...modules, name];
+    applyModules();
+    noteWorkspaceChanged();
+  });
+}
+
+workspace.registerToolboxCategoryCallback(MODULES_CATEGORY, () =>
+  MODULES.map((name) => ({
+    kind: 'button',
+    text: modules.includes(name) ? `Remove ${name} blocks` : `Add ${name} blocks`,
+    callbackkey: `SNAPPY_TOGGLE_${name}`,
+  })),
+);
 
 // --- project state ----------------------------------------------------------
 
@@ -121,6 +155,7 @@ function applyState(state: RunnerState) {
 const events = {
   onState: applyState,
   onOutput: (text: string, stream: 'stdout' | 'stderr') => consolePane.write(text, stream),
+  onDraw: (op: string, args: unknown[]) => stage.draw(op, args),
   onFinished: (status: 'ok' | 'error' | 'stopped', message?: string) => {
     if (status === 'error' && message) {
       consolePane.write(`${message}\n`, 'stderr');
@@ -146,6 +181,7 @@ function blameBlock(message: string) {
 
 runButton.addEventListener('click', () => {
   consolePane.clear();
+  stage.clear();
   clearErrorHighlight();
   backend?.run(code);
 });
@@ -158,7 +194,9 @@ function confirmDiscard(action: string): boolean {
   return !dirty || confirm(`"${projectName}" has unsaved changes. ${action} anyway?`);
 }
 
-function loadProject(name: string, workspaceState: object) {
+function loadProject(name: string, workspaceState: object, projectModules: string[] = []) {
+  modules = projectModules.filter((module) => MODULES.includes(module));
+  applyModules();
   Blockly.serialization.workspaces.load(workspaceState, workspace);
   projectName = name;
   regenerate();
@@ -171,7 +209,7 @@ async function openProject() {
     const file = await projectIO.open();
     if (!file) return;
     const project = parse(file.text, file.name);
-    loadProject(project.name || file.name, project.workspace);
+    loadProject(project.name || file.name, project.workspace, project.modules);
   } catch (err) {
     alert(err instanceof Error ? err.message : String(err));
   }
@@ -179,7 +217,7 @@ async function openProject() {
 
 async function saveProject(forceNew: boolean) {
   try {
-    const text = serialize({ name: projectName, workspace: snapshot() });
+    const text = serialize({ name: projectName, workspace: snapshot(), modules });
     const saved = await projectIO.save(text, projectName, forceNew);
     if (!saved) return; // Cancelled.
     projectName = saved;
@@ -192,7 +230,7 @@ async function saveProject(forceNew: boolean) {
 function newProject() {
   if (!confirmDiscard('Start a new project')) return;
   projectIO.forget();
-  loadProject(UNTITLED, STARTER);
+  loadProject(UNTITLED, STARTER, []);
 }
 
 $('#new').addEventListener('click', newProject);
@@ -248,8 +286,15 @@ function restoreAutosave(): object {
   const raw = localStorage.getItem(AUTOSAVE_KEY);
   if (!raw) return STARTER;
   try {
-    const stored = JSON.parse(raw) as { version?: number; workspace?: object };
-    const isWrapped = typeof stored.version === 'number' && !!stored.workspace;
+    const stored = JSON.parse(raw) as {
+      version?: number;
+      workspace?: object;
+      modules?: string[];
+    };
+    // A wrapper is recognised by carrying a workspace, not by having a version:
+    // the first wrapped autosaves predate the version field.
+    const isWrapped = !!stored.workspace;
+    modules = (stored.modules ?? []).filter((module) => MODULES.includes(module));
     return migrateWorkspace(isWrapped ? stored.workspace! : stored, stored.version ?? 1);
   } catch {
     return STARTER; // unreadable autosave should not stop the app starting
@@ -257,6 +302,7 @@ function restoreAutosave(): object {
 }
 
 Blockly.serialization.workspaces.load(restoreAutosave(), workspace);
+applyModules();
 regenerate();
 renderProjectLabel();
 
@@ -267,7 +313,7 @@ function noteWorkspaceChanged() {
   renderProjectLabel();
   localStorage.setItem(
     AUTOSAVE_KEY,
-    JSON.stringify({ version: FORMAT_VERSION, workspace: snapshot() }),
+    JSON.stringify({ version: FORMAT_VERSION, workspace: snapshot(), modules }),
   );
 }
 
@@ -279,7 +325,7 @@ workspace.addChangeListener((event: Blockly.Events.Abstract) => {
 // Dev-only handle so the browser test suite can drive the workspace directly
 // rather than only through synthetic DOM events. Vite strips this from builds.
 if (import.meta.env.DEV) {
-  (window as unknown as { snappy?: unknown }).snappy = { workspace, Blockly };
+  (window as unknown as { snappy?: unknown }).snappy = { workspace, Blockly, stage };
 }
 
 // Zelos measures against the container, so a resize needs an explicit nudge.

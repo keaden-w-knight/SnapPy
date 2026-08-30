@@ -7,6 +7,8 @@ export const FORMAT_VERSION = CURRENT_VERSION;
 export interface Project {
   name: string;
   workspace: object;
+  /** Optional libraries whose blocks the project uses, e.g. ['turtle']. */
+  modules?: string[];
 }
 
 interface ProjectFile {
@@ -14,6 +16,7 @@ interface ProjectFile {
   version: number;
   name: string;
   workspace: object;
+  modules?: string[];
 }
 
 export function serialize(project: Project): string {
@@ -22,6 +25,7 @@ export function serialize(project: Project): string {
     version: FORMAT_VERSION,
     name: project.name,
     workspace: project.workspace,
+    modules: project.modules ?? [],
   };
   return `${JSON.stringify(file, null, 2)}\n`;
 }
@@ -59,6 +63,9 @@ export function parse(text: string, fallbackName: string): Project {
     // Older files are walked forward before Blockly ever sees them, so a block
     // type that has since been replaced never needs to still exist.
     workspace: migrateWorkspace(file.workspace, file.version),
+    modules: Array.isArray(file.modules)
+      ? file.modules.filter((module): module is string => typeof module === 'string')
+      : [],
   };
 }
 

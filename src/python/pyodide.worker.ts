@@ -8,6 +8,7 @@ import {
   type ToWorker,
 } from './protocol';
 import { cleanTraceback } from './traceback';
+import { CANVAS_MODULE, TURTLE_SHIM } from './turtle-shim';
 
 // Pyodide is fetched at runtime from /pyodide/ rather than bundled. @vite-ignore
 // stops Vite from trying to resolve this at build time.
@@ -83,6 +84,16 @@ async function boot(msg: Extract<ToWorker, { type: 'init' }>) {
     return buf.length;
   } });
   py.setStdin({ isatty: false, stdin: readLine });
+
+  // Pyodide has no tkinter, so `import turtle` would fail. Register a canvas to
+  // draw through, then install a stand-in module under the real name so the
+  // generated code stays ordinary Python.
+  py.registerJsModule(CANVAS_MODULE, {
+    emit: (op: string, payload: string) => {
+      post({ type: 'draw', op, args: JSON.parse(payload) as unknown[] });
+    },
+  });
+  py.runPython(TURTLE_SHIM);
 
   if (msg.stdin) {
     stdinBuffer = msg.stdin;

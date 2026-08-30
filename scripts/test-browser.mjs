@@ -146,6 +146,24 @@ const LOOP_OVAL = program([{
   },
 }]);
 
+// Draws a short line, a turn, and a dot -- enough to prove the whole path from
+// Python through the worker to the canvas.
+const TURTLE = program([{
+  type: 'snappy_when_run', x: 40, y: 40,
+  next: { block: {
+    type: 'snappy_turtle_move', fields: { DIRECTION: 'forward' },
+    inputs: { DISTANCE: numb(60) },
+    next: { block: {
+      type: 'snappy_turtle_turn', fields: { DIRECTION: 'right' },
+      inputs: { ANGLE: numb(90) },
+      next: { block: {
+        type: 'snappy_turtle_move', fields: { DIRECTION: 'forward' },
+        inputs: { DISTANCE: numb(60) },
+      } },
+    } },
+  } },
+}]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -191,9 +209,10 @@ const READY = "(() => document.querySelector('#status')?.textContent?.trim() ===
 const OUT = "(document.querySelector('#console .console-output')?.textContent ?? '').slice(-400)";
 const STATUS = "document.querySelector('#status')?.textContent?.trim()";
 
-async function loadProgram(workspace) {
+async function loadProgram(workspace, modules = []) {
+  const stored = { workspace, modules };
   await evaluate(
-    `localStorage.setItem('snappy.workspace.v1', ${JSON.stringify(JSON.stringify(workspace))})`,
+    `localStorage.setItem('snappy.workspace.v1', ${JSON.stringify(JSON.stringify(stored))})`,
   );
   // A sentinel on the old document: if it survives, the reload never happened
   // and every later assertion would be reading a stale page.
@@ -588,6 +607,47 @@ try {
     (await evaluate("JSON.stringify(window.snappy.workspace.getAllVariables().map((m) => m.name))"))
       === '["score"]',
     await evaluate("JSON.stringify(window.snappy.workspace.getAllVariables().map((m) => m.name))"));
+  // 15. Turtle graphics: the module adds a palette category and a stage, and a
+  // program actually puts ink on the canvas.
+  await loadProgram(TURTLE, ['turtle']);
+  check('the turtle category appears when the module is on',
+    (await evaluate(
+      "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
+      .includes('Turtle'));
+  check('the stage pane is shown',
+    (await evaluate("!document.querySelector('#stage-pane').hidden")) === true);
+  check('turtle code is generated',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('turtle.forward(60)'));
+
+  await evaluate("document.querySelector('#run').click()");
+  const painted = await waitFor('ink on the canvas', `(() => {
+    const canvas = document.querySelector('.stage-ink');
+    if (!canvas || !canvas.width) return null;
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
+    return count || null;
+  })()`, 60000);
+  check('the program drew on the stage', painted > 100, `${painted} painted pixels`);
+
+  const turtleShown = await evaluate(`(() => {
+    const canvas = document.querySelector('.stage-turtle');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) count++;
+    return count;
+  })()`);
+  check('the turtle marker is drawn', turtleShown > 20, `${turtleShown} pixels`);
+
+  // Without the module the stage stays out of the way.
+  await loadProgram(HELLO);
+  check('the stage is hidden when the module is off',
+    (await evaluate("document.querySelector('#stage-pane').hidden")) === true);
+  check('the turtle category is gone',
+    !(await evaluate(
+      "JSON.stringify([...document.querySelectorAll('.blocklyTreeRow')].map((r) => r.textContent.trim()))"))
+      .includes('Turtle'));
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

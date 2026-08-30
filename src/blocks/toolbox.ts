@@ -13,7 +13,44 @@ const str = (value: string) => ({
  * Category order mirrors Scratch's palette so the muscle memory transfers:
  * events, control, then the "do something" categories, then operators and data.
  */
-export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
+/** Blocks a module adds to the palette once it is switched on. */
+const MODULE_CATEGORIES: Record<string, Blockly.utils.toolbox.ToolboxItemInfo> = {
+  turtle: {
+    kind: 'category',
+    name: 'Turtle',
+    categorystyle: 'turtle_category',
+    contents: [
+      { kind: 'block', type: 'snappy_turtle_move', inputs: { DISTANCE: num(100) } },
+      { kind: 'block', type: 'snappy_turtle_turn', inputs: { ANGLE: num(90) } },
+      { kind: 'block', type: 'snappy_turtle_goto', inputs: { X: num(0), Y: num(0) } },
+      { kind: 'block', type: 'snappy_turtle_heading', inputs: { ANGLE: num(0) } },
+      { kind: 'block', type: 'snappy_turtle_home' },
+      { kind: 'block', type: 'snappy_turtle_pen' },
+      { kind: 'block', type: 'snappy_turtle_color' },
+      { kind: 'block', type: 'snappy_turtle_size', inputs: { SIZE: num(2) } },
+      { kind: 'block', type: 'snappy_turtle_circle', inputs: { RADIUS: num(50) } },
+      { kind: 'block', type: 'snappy_turtle_dot', inputs: { SIZE: num(8) } },
+      { kind: 'block', type: 'snappy_turtle_visible' },
+      { kind: 'block', type: 'snappy_turtle_clear' },
+      { kind: 'block', type: 'snappy_turtle_report' },
+    ],
+  },
+};
+
+export const MODULES = Object.keys(MODULE_CATEGORIES);
+export const MODULES_CATEGORY = 'SNAPPY_MODULES';
+
+/**
+ * The palette, with any switched-on modules appended.
+ *
+ * Category order mirrors Scratch's so the muscle memory transfers: events,
+ * control, then the "do something" categories, then operators and data.
+ * Modules come last, next to the picker that turns them on.
+ */
+export function buildToolbox(
+  enabled: readonly string[] = [],
+): Blockly.utils.toolbox.ToolboxDefinition {
+  return {
   kind: 'categoryToolbox',
   contents: [
     {
@@ -134,5 +171,15 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
       // Our own flyout: two dropdown call blocks instead of one per function.
       custom: FUNCTIONS_CATEGORY,
     },
+    ...enabled
+      .filter((name) => name in MODULE_CATEGORIES)
+      .map((name) => MODULE_CATEGORIES[name]),
+    {
+      kind: 'category',
+      name: 'Modules',
+      categorystyle: 'module_category',
+      custom: MODULES_CATEGORY,
+    },
   ],
-};
+  };
+}

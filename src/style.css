@@ -121,7 +121,10 @@ body {
 
 .side {
   display: grid;
-  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  /* Three rows, but a hidden pane is display:none and so is not a grid item --
+     with the stage off, the code and console simply take the first two rows.
+     The stage gets a floor because a squeezed one cannot show a drawing. */
+  grid-template-rows: minmax(200px, 1.5fr) minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
 }
@@ -269,4 +272,21 @@ body {
   align-items: center;
   gap: 5px;
   cursor: pointer;
+}
+
+/* ---- turtle stage ---- */
+
+.stage {
+  position: relative;
+  background: #ffffff;
+  background-image:
+    linear-gradient(to right, #f0f1f6 1px, transparent 1px),
+    linear-gradient(to bottom, #f0f1f6 1px, transparent 1px);
+  background-size: 25px 25px;
+  background-position: center center;
+}
+
+.stage canvas {
+  position: absolute;
+  inset: 0;
 }

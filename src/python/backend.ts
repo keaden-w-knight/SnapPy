@@ -4,6 +4,8 @@ export interface BackendEvents {
   onState(state: RunnerState): void;
   onOutput(text: string, stream: 'stdout' | 'stderr'): void;
   onFinished(status: 'ok' | 'error' | 'stopped', message?: string): void;
+  /** Turtle drawing. Only the Pyodide backend can produce these. */
+  onDraw?(op: string, args: unknown[]): void;
 }
 
 /**

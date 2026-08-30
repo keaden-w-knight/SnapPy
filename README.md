@@ -273,6 +273,54 @@ Both backends are covered: Pyodide tracebacks name the module `<exec>` and
 CPython's `-c` names it `<string>`, and the deepest frame in either is the one
 that gets blamed.
 
+## Modules: turtle
+
+The **Modules** category at the bottom of the palette switches libraries on. Only
+`turtle` so far; adding it appends a Turtle category and reveals the Stage pane.
+Which modules a project uses is saved with it.
+
+The blocks generate ordinary code -- `import turtle`, `turtle.forward(100)` --
+so what the code pane shows is what a learner would type outside the app.
+
+**Pyodide has no tkinter**, so real `turtle` cannot run in the browser at all.
+`src/python/turtle-shim.ts` installs a stand-in under the same name: it keeps the
+same coordinate system (origin in the middle, y upwards, angles
+counter-clockwise from east), computes the geometry in Python, and posts plain
+line and dot operations out to a canvas. Only the subset the blocks need is
+implemented -- no screens, no multiple turtles, no event loop -- though `done()`
+and `mainloop()` exist as no-ops because every tutorial calls them.
+
+The stage keeps two canvases: ink, which accumulates, and the turtle marker,
+which is cleared and redrawn on every move so a moving turtle does not repaint
+the whole drawing. Operations are retained and replayed on resize, since a canvas
+loses its contents when its backing store changes size.
+
+On the desktop backend these blocks run the *real* `turtle` against the user's
+CPython, which opens a Tk window rather than drawing on the stage.
+
+## Project versions and migration
+
+Saved projects carry a `version`, and `src/project/migrate.ts` walks an older one
+forward before Blockly ever sees it -- so a block type that has been retired
+never has to stay registered, and a very old file walks the whole chain one step
+at a time.
+
+This matters because blocks have been replaced more than once: loops and
+functions stopped using workspace-variable dropdowns, and `make` moved its name
+into a socket. Without migration such a project loads with blocks that still
+render but no longer connect to anything, quietly losing behaviour.
+
+The v1 → v2 step rewrites both loop blocks, both procedure definitions (a
+returning one becomes a definition plus a `return` statement), both call blocks,
+and `make`. Names bound by a loop or a parameter are no longer variables, so
+every block that read or wrote one is converted too -- otherwise the variable
+stays referenced and the loop body silently means something other than the loop
+header. Anything left unreferenced is dropped, which is what finally clears names
+like `i` from the palette.
+
+The autosave is versioned the same way. **When you change a block's shape, add a
+migration step and let `CURRENT_VERSION` follow from it.**
+
 ## Projects
 
 Saved as `.snappy` -- JSON with a `format`/`version` header, so old files keep
@@ -348,6 +396,9 @@ src/blocks/variables.ts        Local-variable blocks + the Variables flyout
 src/blocks/loops.ts            Loops whose variable is a draggable oval
 src/blocks/names.ts            Identifier rules + the refilling name socket
 src/blocks/hoisting.ts         Tidies code from Blockly's stock blocks
+src/blocks/turtle.ts           Turtle graphics blocks
+src/python/turtle-shim.ts      A `turtle` module for Pyodide, which has no tkinter
+src/project/migrate.ts         Walks older saved projects forward
 src/blocks/sourcemap.ts        Generated line -> block id, for error highlighting
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement
@@ -359,7 +410,7 @@ src/python/protocol.ts         Worker messages + shared-buffer layout
 src/python/traceback.ts        Strips harness frames from both engines
 src/project/format.ts          .snappy schema, parse/serialize
 src/project/storage.ts         Tauri / File System Access / download strategies
-src/ui/                        Console, code pane, error highlight, dialogs
+src/ui/                        Console, code pane, stage, error highlight, dialogs
 src-tauri/                     Rust shell, config, capabilities, icons
 ```
 

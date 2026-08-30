@@ -321,6 +321,52 @@ const oval = (name: string) => ({ block: { type: 'snappy_local_get', fields: { N
     ws.getAllVariables().length === 0);
 }
 
+// --- turtle graphics --------------------------------------------------------
+
+{
+  const code = gen([{
+    type: 'snappy_when_run', x: 0, y: 0,
+    next: { block: {
+      type: 'snappy_turtle_pen', fields: { STATE: 'pendown' },
+      next: { block: {
+        type: 'snappy_turtle_color', fields: { COLOUR: '#4c97ff' },
+        next: { block: {
+          type: 'snappy_turtle_move', fields: { DIRECTION: 'forward' },
+          inputs: { DISTANCE: numb(100) },
+          next: { block: {
+            type: 'snappy_turtle_turn', fields: { DIRECTION: 'right' },
+            inputs: { ANGLE: numb(90) },
+          } },
+        } },
+      } },
+    } },
+  }]);
+  check('turtle blocks generate ordinary turtle code',
+    code.includes('import turtle') && code.includes('turtle.pendown()') &&
+      code.includes("turtle.pencolor('#4c97ff')") && code.includes('turtle.forward(100)') &&
+      code.includes('turtle.right(90)'),
+    JSON.stringify(code.trim()));
+  check('turtle -> valid Python', isValidPython(code));
+  check('the import is hoisted once',
+    (code.match(/import turtle/g) ?? []).length === 1);
+}
+
+{
+  const code = gen([{
+    type: 'snappy_print', x: 0, y: 0,
+    inputs: { VALUE: { block: { type: 'snappy_turtle_report', fields: { WHAT: 'xcor' } } } },
+  }]);
+  check('the turtle reporter works as a value',
+    code.includes('print(turtle.xcor())'), JSON.stringify(code.trim()));
+  check('turtle reporter -> valid Python', isValidPython(code));
+}
+
+{
+  const code = gen([{ type: 'snappy_turtle_circle', x: 0, y: 0, inputs: { RADIUS: numb(50) } }]);
+  check('circle generates a circle call', code.includes('turtle.circle(50)'),
+    JSON.stringify(code.trim()));
+}
+
 // --- source map: which block produced which line ----------------------------
 
 {

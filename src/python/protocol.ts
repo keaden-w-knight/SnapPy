@@ -9,6 +9,8 @@ export type FromWorker =
   | { type: 'boot-error'; message: string }
   | { type: 'out'; text: string; stream: 'stdout' | 'stderr' }
   | { type: 'stdin-request' }
+  /** One turtle drawing operation; see src/python/turtle-shim.ts. */
+  | { type: 'draw'; op: string; args: unknown[] }
   | { type: 'done'; status: 'ok' | 'error' | 'stopped'; message?: string };
 
 /**
