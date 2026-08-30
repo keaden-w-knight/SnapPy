@@ -143,12 +143,27 @@ Blockly.Blocks[DEF_BLOCK] = {
     return { name: toIdentifier(this.getFieldValue('NAME')), params: [...this.params_] };
   },
 
+  /**
+   * Rebuild the parameter sockets, carrying each existing name oval across.
+   *
+   * Blockly's removeInput only *disconnects* a real child block -- it disposes
+   * shadows, not real ones -- so rebuilding naively left every previous oval
+   * loose on the canvas, where a stray name generates a line of code. Ovals are
+   * detached deliberately, reconnected by name, and any belonging to a parameter
+   * that no longer exists are disposed rather than abandoned.
+   */
   updateShape_(this: DefBlock, params: FunctionParam[]) {
     if (sameParams(params, this.params_)) return;
 
-    for (let i = 0; i < this.params_.length; i++) {
+    const existing = new Map<string, Blockly.Block>();
+    this.params_.forEach((param, i) => {
+      const oval = this.getInput(paramInput(i))?.connection?.targetBlock();
+      if (oval) {
+        oval.outputConnection?.disconnect();
+        existing.set(param.name, oval);
+      }
       if (this.getInput(paramInput(i))) this.removeInput(paramInput(i));
-    }
+    });
 
     this.params_ = params.map((param) => ({ ...param }));
     this.params_.forEach((param, i) => {
@@ -156,7 +171,16 @@ Blockly.Blocks[DEF_BLOCK] = {
       if (param.type === 'boolean') input.setCheck('Boolean');
       // Appending puts it last, so pull it back in front of the + button.
       this.moveInputBefore(paramInput(i), 'ADD');
+
+      const kept = existing.get(param.name);
+      if (kept && TYPE_OF_GETTER[kept.type] === param.type) {
+        input.connection?.connect(kept.outputConnection!);
+        existing.delete(param.name);
+      }
     });
+
+    // Whatever is left belonged to a parameter that is gone.
+    for (const orphan of existing.values()) orphan.dispose(false);
   },
 
   addParameter_(this: DefBlock) {

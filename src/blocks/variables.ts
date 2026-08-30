@@ -40,10 +40,7 @@ Blockly.Blocks['snappy_local_get_boolean'] = {
   },
 };
 
-pythonGenerator.forBlock['snappy_local_get_boolean'] = (block) => [
-  toIdentifier(block.getFieldValue('NAME')),
-  Order.ATOMIC,
-];
+pythonGenerator.forBlock['snappy_local_get_boolean'] = (block) => nameExpression(block);
 
 /**
  * The name is an oval in a socket rather than a text field, so it can be dragged
@@ -70,10 +67,18 @@ pythonGenerator.forBlock['snappy_local_set'] = (block) => {
   return `${slotName(block)} = ${value}\n`;
 };
 
-pythonGenerator.forBlock['snappy_local_get'] = (block) => [
-  toIdentifier(block.getFieldValue('NAME')),
-  Order.ATOMIC,
-];
+/**
+ * A name on its own is a reference with no effect, so an unattached one
+ * generates nothing. Blockly's default turns a top-level value block into a
+ * statement, which for a name oval left on the canvas means a bare `input1`
+ * line and a NameError -- code for a block the user never meant to run.
+ */
+function nameExpression(block: Blockly.Block): [string, number] {
+  if (!block.getParent()) return ['', Order.ATOMIC];
+  return [toIdentifier(block.getFieldValue('NAME')), Order.ATOMIC];
+}
+
+pythonGenerator.forBlock['snappy_local_get'] = nameExpression;
 
 /**
  * Blockly's stock Variables flyout (the "Create variable..." button and the

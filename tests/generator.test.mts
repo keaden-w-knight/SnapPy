@@ -266,6 +266,67 @@ const paramOval = (name: string, type: 'value' | 'boolean' = 'value') => ({
   check('unset oval call -> valid Python', isValidPython(code));
 }
 
+{
+  // Adding a parameter rebuilds the sockets. Blockly's removeInput only
+  // disconnects real children, so the previous ovals used to be left loose on
+  // the canvas -- where a stray name generated a line of code.
+  withVar([{
+    type: 'snappy_function_def', x: 0, y: 0,
+    fields: { NAME: 'do_something' },
+    extraState: { params: [param('input1')] },
+    inputs: {
+      PARAM0: paramOval('input1'),
+      DO: { block: { type: 'snappy_print', inputs: {
+        VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'input1' } } } } } },
+    },
+  }]);
+
+  const def = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def')!;
+  (def as unknown as { updateShape_(p: unknown[]): void }).updateShape_([
+    param('input1'), param('input2'),
+  ]);
+
+  const loose = ws.getTopBlocks(false).filter((b) => b.type === 'snappy_local_get');
+  check('adding a parameter leaves no loose ovals', loose.length === 0,
+    `${loose.length} loose`);
+  check('the existing parameter oval stays connected',
+    def.getInputTargetBlock('PARAM0')?.getFieldValue('NAME') === 'input1');
+
+  const code = pythonGenerator.workspaceToCode(ws);
+  check('no stray name statement is generated', !/^input1$/m.test(code),
+    JSON.stringify(code.trim()));
+  check('the definition still has both parameters',
+    code.includes('def do_something(input1, input2):'), JSON.stringify(code.trim()));
+}
+
+{
+  // Removing a parameter disposes its oval rather than abandoning it.
+  withVar([{
+    type: 'snappy_function_def', x: 0, y: 0,
+    fields: { NAME: 'f' },
+    extraState: { params: [param('a'), param('b')] },
+    inputs: { PARAM0: paramOval('a'), PARAM1: paramOval('b') },
+  }]);
+  const def = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def')!;
+  (def as unknown as { updateShape_(p: unknown[]): void }).updateShape_([param('a')]);
+  check('removing a parameter disposes its oval',
+    ws.getAllBlocks(false).filter((b) => b.type === 'snappy_local_get').length === 1);
+  check('the remaining parameter is untouched',
+    def.getInputTargetBlock('PARAM0')?.getFieldValue('NAME') === 'a');
+}
+
+{
+  // A name oval left loose on the canvas is a leftover, not a statement.
+  const code = withVar([
+    { type: 'snappy_local_get', x: 0, y: 0, fields: { NAME: 'stray' } },
+    { type: 'snappy_print', x: 0, y: 200, inputs: { VALUE: text('hi') } },
+  ]);
+  check('a loose name oval generates nothing',
+    !code.includes('stray') && code.includes("print('hi')"),
+    JSON.stringify(code.trim()));
+  check('loose oval -> valid Python', isValidPython(code));
+}
+
 // The hat block itself must contribute no code of its own.
 check('hat alone generates nothing',
   gen([{ type: 'snappy_when_run', x: 0, y: 0 }]).trim() === '');

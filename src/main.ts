@@ -13,7 +13,8 @@ import type { PythonBackend, RunnerState } from './python/backend';
 import { createBackend } from './python/select';
 import { isolated } from './python/pyodide-backend';
 import { createProjectIO } from './project/storage';
-import { parse, serialize } from './project/format';
+import { FORMAT_VERSION, parse, serialize } from './project/format';
+import { migrateWorkspace } from './project/migrate';
 import { ConsolePane } from './ui/console';
 import { createCodePane } from './ui/codepane';
 import './style.css';
@@ -239,8 +240,23 @@ const STARTER = {
   },
 };
 
-const autosaved = localStorage.getItem(AUTOSAVE_KEY);
-Blockly.serialization.workspaces.load(autosaved ? JSON.parse(autosaved) : STARTER, workspace);
+/**
+ * The autosave predates having a version, so a bare workspace state is treated
+ * as version 1 and migrated like any other old project.
+ */
+function restoreAutosave(): object {
+  const raw = localStorage.getItem(AUTOSAVE_KEY);
+  if (!raw) return STARTER;
+  try {
+    const stored = JSON.parse(raw) as { version?: number; workspace?: object };
+    const isWrapped = typeof stored.version === 'number' && !!stored.workspace;
+    return migrateWorkspace(isWrapped ? stored.workspace! : stored, stored.version ?? 1);
+  } catch {
+    return STARTER; // unreadable autosave should not stop the app starting
+  }
+}
+
+Blockly.serialization.workspaces.load(restoreAutosave(), workspace);
 regenerate();
 renderProjectLabel();
 
@@ -249,7 +265,10 @@ function noteWorkspaceChanged() {
   clearErrorHighlight();
   dirty = true;
   renderProjectLabel();
-  localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot()));
+  localStorage.setItem(
+    AUTOSAVE_KEY,
+    JSON.stringify({ version: FORMAT_VERSION, workspace: snapshot() }),
+  );
 }
 
 workspace.addChangeListener((event: Blockly.Events.Abstract) => {
