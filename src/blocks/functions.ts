@@ -599,6 +599,15 @@ function assignedGlobals(block: Blockly.Block): string[] {
   return [...names].sort();
 }
 
+/**
+ * Returned rather than hoisted into `definitions_`.
+ *
+ * Blockly's usual home for a function definition is the definitions block, which
+ * `finish()` pastes above everything else -- so a function jumped to the top of
+ * the script no matter where its block sat. Returning the code lets program.ts
+ * decide the order instead. Imports still hoist, because they have to come first
+ * to be valid Python.
+ */
 pythonGenerator.forBlock[DEF_BLOCK] = (block, generator) => {
   const def = (block as DefBlock).getFunctionDef();
   const name = procedureName(def.name);
@@ -608,9 +617,7 @@ pythonGenerator.forBlock[DEF_BLOCK] = (block, generator) => {
   const globalLine = globals.length ? `${generator.INDENT}global ${globals.join(', ')}\n` : '';
   const body = generator.statementToCode(block, 'DO') || `${generator.INDENT}pass\n`;
 
-  const internals = generator as unknown as GeneratorInternals;
-  internals.definitions_[`%${name}`] = `def ${name}(${params}):\n${globalLine}${body}`;
-  return null;
+  return `def ${name}(${params}):\n${globalLine}${body}\n`;
 };
 
 pythonGenerator.forBlock[METHOD_BLOCK] = (block, generator) => {
