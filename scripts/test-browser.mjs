@@ -57,9 +57,12 @@ const FOREVER = program([{
 }]);
 
 const COUNT = program([{
-  type: 'controls_repeat_ext', x: 40, y: 40,
-  inputs: { TIMES: numb(3), DO: { block: { type: 'snappy_print', inputs: {
-    VALUE: { block: { type: 'snappy_random', inputs: { FROM: numb(1), TO: numb(6) } } } } } } },
+  type: 'snappy_when_run', x: 40, y: 40,
+  next: { block: {
+    type: 'controls_repeat_ext',
+    inputs: { TIMES: numb(3), DO: { block: { type: 'snappy_print', inputs: {
+      VALUE: { block: { type: 'snappy_random', inputs: { FROM: numb(1), TO: numb(6) } } } } } } },
+  } },
 }]);
 
 const FUNCTIONS = program([
@@ -132,22 +135,33 @@ const UNCHOSEN_CALL = program([
 const VARIABLES = {
   variables: [{ name: 'score', id: 'scoreId' }],
   blocks: { languageVersion: 0, blocks: [
-    { type: 'variables_set', x: 40, y: 40, fields: { VAR: { id: 'scoreId' } },
-      inputs: { VALUE: numb(1) } },
+    { type: 'snappy_when_run', x: 40, y: 40,
+      next: { block: { type: 'variables_set', fields: { VAR: { id: 'scoreId' } },
+        inputs: { VALUE: numb(1) } } } },
   ] },
 };
 
 // A loop whose variable is an oval, not a workspace variable.
 const LOOP_OVAL = program([{
-  type: 'snappy_for_each', x: 40, y: 40,
-  inputs: {
-    VAR: { block: { type: 'snappy_local_get', fields: { NAME: 'item' } } },
-    LIST: { block: { type: 'lists_create_with' } },
-  },
+  type: 'snappy_when_run', x: 40, y: 40,
+  next: { block: {
+    type: 'snappy_for_each',
+    inputs: {
+      VAR: { block: { type: 'snappy_local_get', fields: { NAME: 'item' } } },
+      LIST: { block: { type: 'lists_create_with' } },
+    },
+  } },
 }]);
 
 // Draws a short line, a turn, and a dot -- enough to prove the whole path from
 // Python through the worker to the canvas.
+// A stack parked on the canvas next to a real program: it must not be run.
+const LOOSE = program([
+  { type: 'snappy_when_run', x: 40, y: 40,
+    next: { block: { type: 'snappy_print', inputs: { VALUE: text('the program') } } } },
+  { type: 'snappy_print', x: 40, y: 260, inputs: { VALUE: text('left lying around') } },
+]);
+
 const TURTLE = program([{
   type: 'snappy_when_run', x: 40, y: 40,
   next: { block: {
@@ -359,7 +373,9 @@ try {
   const answered = await waitFor('program to consume input',
     `(() => { const t = ${OUT}; return t.split('Ada').length >= 3 ? t : null; })()`, 30000);
   check('input reached Python', true, JSON.stringify(answered));
-  check('returned to Ready after input', (await evaluate(READY)) === true);
+  // The output lands before the state settles, so wait rather than sample.
+  check('returned to Ready after input',
+    (await waitFor('the run to finish', READY, 20000)) === true);
 
   // 4. Stop interrupts a runaway loop.
   await loadProgram(FOREVER);
@@ -728,6 +744,38 @@ try {
     return method && !method.getField('SPECIAL') ? 'gone' : null;
   })()`, 15000);
   check('leaving the class removes the special-method menu', true);
+  // 17. Only hat blocks are roots, so scratch work on the canvas is ignored.
+  await loadProgram(LOOSE);
+  const generated = await evaluate(
+    "document.querySelector('#code .cm-content')?.textContent ?? ''");
+  check('a loose stack is not part of the script',
+    !generated.includes('left lying around'), JSON.stringify(generated));
+  check('the real program still generates', generated.includes("print('the program')"));
+
+  await evaluate("document.querySelector('#run').click()");
+  const ran = await waitFor('the program to run',
+    `(() => { const t = ${OUT}; return t.includes('the program') ? t : null; })()`, 60000);
+  check('only the rooted program runs', !ran.includes('left lying around'),
+    JSON.stringify(ran.trim()));
+
+  // 18. Hiding the stage gives the code pane and console their sizes back.
+  const paneHeights = () =>
+    `(() => JSON.stringify([
+      Math.round(document.querySelector('.pane-code').getBoundingClientRect().height),
+      Math.round(document.querySelector('.pane-console').getBoundingClientRect().height),
+    ]))()`;
+
+  await loadProgram(HELLO);
+  const before = await evaluate(paneHeights());
+  await loadProgram(TURTLE, ['turtle']);
+  const withStage = await evaluate(paneHeights());
+  await loadProgram(HELLO);
+  const after = await evaluate(paneHeights());
+
+  check('the stage takes room from the other panes', withStage !== before,
+    `${before} -> ${withStage}`);
+  check('hiding the stage restores the original sizes', after === before,
+    `${before} -> ${withStage} -> ${after}`);
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

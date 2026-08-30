@@ -1,5 +1,6 @@
 import type * as Blockly from 'blockly/core';
 import { pythonGenerator } from 'blockly/python';
+import { generateProgram } from './program';
 
 /**
  * Maps lines of generated Python back to the blocks that produced them, so a
@@ -33,7 +34,9 @@ export function buildLineMap(
   let annotated: string;
   try {
     pythonGenerator.STATEMENT_PREFIX = PREFIX;
-    annotated = pythonGenerator.workspaceToCode(workspace);
+    // The same generator the program uses, or the two passes would disagree
+    // about which blocks count and the map would be discarded every time.
+    annotated = generateProgram(workspace);
   } catch {
     return new Map();
   } finally {

@@ -1,8 +1,8 @@
 import * as Blockly from 'blockly/core';
-import { pythonGenerator } from 'blockly/python';
 import './blocks/blocks';
 import { scratchTheme } from './blocks/theme';
 import { buildToolbox, MODULES, MODULES_CATEGORY } from './blocks/toolbox';
+import { generateProgram } from './blocks/program';
 import { registerFunctionsCategory } from './blocks/functions';
 import { registerVariablesCategory } from './blocks/variables';
 import { registerClassesCategory } from './blocks/classes';
@@ -77,6 +77,9 @@ function applyModules() {
 function applyStageVisibility() {
   const drawing = code.includes('import turtle');
   $('#stage-pane').hidden = !drawing;
+  // The row template depends on how many panes there are, and a hidden pane is
+  // not a grid item -- so the class, rather than the count, decides the sizes.
+  $('.side').classList.toggle('with-stage', drawing);
   stage.setVisible(drawing);
 }
 
@@ -123,7 +126,7 @@ function renderProjectLabel() {
 // --- blocks -> python -------------------------------------------------------
 
 function regenerate() {
-  code = pythonGenerator.workspaceToCode(workspace);
+  code = generateProgram(workspace);
   codePane.setCode(code || '# Drag blocks to build a program.');
   applyStageVisibility();
   refreshButtons();

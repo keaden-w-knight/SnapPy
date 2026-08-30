@@ -123,6 +123,32 @@ A related sharp edge: an interrupt that arrives while Pyodide is still
 so the worker also listens for `unhandledrejection`. Without that the run never
 reports completion.
 
+## What counts as the program
+
+Blockly generates code for *every* top-level block, so a stack left on the canvas
+while you think about it silently became part of the script -- and a half-finished
+one could break a program that otherwise ran. `src/blocks/program.ts` generates
+from **roots** only:
+
+```
+when the program starts    the entry point, and everything stacked under it
+to (name) ...              a function definition
+class (Name) ...           a class definition
+```
+
+The test is structural rather than a list of types: a root is a block that can
+neither be stacked onto nor plugged in, which is exactly what the hat shape
+means. So a new hat block is a root automatically, and everything else on the
+canvas is scratch work that generates nothing -- the same way a loose stack in
+Scratch never runs.
+
+This also means an import is only hoisted when a root actually reaches the block
+that needs it: a turtle block sitting loose does not pull in `import turtle`, and
+so does not summon the stage.
+
+`buildLineMap` generates through the same function, or the two passes would
+disagree about which blocks count and the error highlighter would give up.
+
 ## Functions
 
 Blockly's own `procedures_*` blocks model every parameter as a workspace
@@ -463,6 +489,7 @@ src/blocks/classes.ts          Class, method and property blocks
 src/blocks/turtle.ts           Turtle graphics blocks
 src/python/turtle-shim.ts      A `turtle` module for Pyodide, which has no tkinter
 src/project/migrate.ts         Walks older saved projects forward
+src/blocks/program.ts          Which blocks are roots; workspace -> program
 src/blocks/sourcemap.ts        Generated line -> block id, for error highlighting
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement
