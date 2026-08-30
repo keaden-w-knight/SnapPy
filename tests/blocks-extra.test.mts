@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import * as Blockly from 'blockly/core';
 import { pythonGenerator } from 'blockly/python';
 import '../src/blocks/blocks';
-import { toIdentifier } from '../src/blocks/variables';
+import { toIdentifier } from '../src/blocks/names';
 import { buildLineMap } from '../src/blocks/sourcemap';
 import { errorLine } from '../src/python/traceback';
 
@@ -245,6 +245,80 @@ check('identifier: already valid is untouched', toIdentifier('counter') === 'cou
   check('for-each loop iterates a list',
     /for item in/.test(code), JSON.stringify(code.trim()));
   check('for-each -> valid Python', isValidPython(code));
+}
+
+// --- loops whose variable is a draggable oval --------------------------------
+
+const oval = (name: string) => ({ block: { type: 'snappy_local_get', fields: { NAME: name } } });
+
+{
+  const code = gen([{
+    type: 'snappy_for_each', x: 0, y: 0,
+    inputs: {
+      VAR: oval('thing'),
+      LIST: { block: { type: 'lists_create_with' } },
+      DO: { block: { type: 'snappy_print', inputs: {
+        VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'thing' } } } } } },
+    },
+  }]);
+  check('for-each uses the name from its oval',
+    code.includes('for thing in') && code.includes('print(thing)'),
+    JSON.stringify(code.trim()));
+  check('for-each oval -> valid Python', isValidPython(code));
+  check('the loop variable is not a workspace variable',
+    ws.getAllVariables().length === 0, `${ws.getAllVariables().length} variables`);
+}
+
+{
+  const code = gen([{
+    type: 'snappy_for_range', x: 0, y: 0,
+    inputs: { VAR: oval('i'), FROM: numb(1), TO: numb(10), BY: numb(1) },
+  }]);
+  check('count-with folds an inclusive range', code.includes('for i in range(1, 11):'),
+    JSON.stringify(code.trim()));
+  check('count-with -> valid Python', isValidPython(code));
+}
+
+{
+  const code = gen([{
+    type: 'snappy_for_range', x: 0, y: 0,
+    inputs: { VAR: oval('n'), FROM: numb(0), TO: numb(10), BY: numb(2) },
+  }]);
+  check('a step other than 1 is passed through',
+    code.includes('range(0, 11, 2)'), JSON.stringify(code.trim()));
+}
+
+{
+  const code = gen([{
+    type: 'snappy_for_range', x: 0, y: 0,
+    inputs: { VAR: oval('n'), FROM: numb(10), TO: numb(1), BY: numb(-1) },
+  }]);
+  check('a negative step counts down inclusively',
+    code.includes('range(10, 0, -1)'), JSON.stringify(code.trim()));
+  check('countdown -> valid Python', isValidPython(code));
+}
+
+{
+  // An empty socket still has to generate something runnable.
+  const code = gen([{ type: 'snappy_for_each', x: 0, y: 0 }]);
+  check('an empty name socket falls back to a default',
+    code.includes('for item in []:'), JSON.stringify(code.trim()));
+  check('empty socket -> valid Python', isValidPython(code));
+}
+
+{
+  const code = gen([{
+    type: 'snappy_local_set', x: 0, y: 0,
+    inputs: { VAR: oval('counter'), VALUE: numb(0) },
+    next: { block: { type: 'snappy_print', inputs: {
+      VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'counter' } } } } } },
+  }]);
+  check('make uses the name from its oval',
+    code.includes('counter = 0') && code.includes('print(counter)'),
+    JSON.stringify(code.trim()));
+  check('make with oval -> valid Python', isValidPython(code));
+  check('make does not create a workspace variable',
+    ws.getAllVariables().length === 0);
 }
 
 // --- source map: which block produced which line ----------------------------

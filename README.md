@@ -180,11 +180,44 @@ That is deliberate -- it stops a read-before-assign becoming a `NameError` -- so
 it stays, except for names Python already binds for you:
 
 - **function parameters**, which are local by definition, and
-- **`for` loop targets**, which the loop assigns before the body runs.
+- **`for` loop targets**, which the loop assigns before the body runs (this only
+  applies to Blockly's stock loops; SnapPy's own loops never make a workspace
+  variable in the first place).
 
 A name is only dropped when *every* block using it sits inside the thing that
 binds it. Read a loop variable after the loop and the declaration comes back,
 because an empty list means the body never ran.
+
+## Loop variables are ovals, not dropdowns
+
+Blockly's `controls_for`/`controls_forEach` name their target with a
+`field_variable`, which forces the loop variable to be a *workspace* variable: it
+joins every variable dropdown in the project and clutters the Variables palette,
+even though `for i in ...` binds `i` locally.
+
+`snappy_for_each` and `snappy_for_range` instead keep the name in a
+`snappy_local_get` block plugged into a `VAR` socket. Drag it out and you have a
+reference to use in the body; the loop grows a fresh one in its place, so it
+reads as taking a copy rather than removing something. `make (name) = (value)`
+uses the same socket for the same reason. Nothing touches the variable list.
+
+Two Blockly details make this work:
+
+- **Shadow blocks are not draggable.** Blockly's usual way to put a default child
+  in a socket is a shadow, but it never converts one to a real block on drag, so
+  the socket holds a real block and refills itself when emptied.
+- **`onchange` on a block definition is not enough.** Blockly wires `onchange` up
+  to the workspace in `doInit_`, which runs *before* JSON extensions are applied
+  -- a mixin's handler lands on the instance but is never registered, and
+  silently never fires. `installVarSlot` calls `setOnChange` explicitly.
+
+`count with` treats `to` as inclusive, matching the other blocks rather than
+Python's half-open `range`, and folds literals so the common case reads
+`range(1, 11)` rather than `range(1, 10 + 1)`.
+
+A loose oval left on the canvas still generates a line of code, the same as any
+other unattached block -- this app treats everything on the workspace as program
+text.
 
 ## Variables: global and local
 
@@ -290,6 +323,12 @@ that the Functions flyout and both call blocks work, and that a failing program
 highlights the block that caused it. Set `SNAPPY_BROWSER` if the browser is not
 found automatically.
 
+The harness shims `requestAnimationFrame` with `setTimeout`. Headless Chrome
+never paints, so rAF callbacks never run -- and Blockly flushes its event queue
+from rAF, so without the shim no change listener in the app ever fires and every
+event-driven behaviour looks broken when it is merely unobserved. That cost real
+time to diagnose twice.
+
 A Pyodide loading regression that passed a production build but broke the dev
 server shipped once because nothing exercised a running page. Hence the above.
 
@@ -303,6 +342,8 @@ src/blocks/theme.ts            Scratch palette, Zelos styling
 src/blocks/blocks.ts           Custom blocks + Python generators, restyle pass
 src/blocks/functions.ts        Dropdown call blocks, Functions flyout, hoisting fix
 src/blocks/variables.ts        Local-variable blocks + the Variables flyout
+src/blocks/loops.ts            Loops whose variable is a draggable oval
+src/blocks/names.ts            Identifier rules + the refilling name socket
 src/blocks/sourcemap.ts        Generated line -> block id, for error highlighting
 src/blocks/toolbox.ts          Palette contents and category order
 src/python/backend.ts          The interface both engines implement

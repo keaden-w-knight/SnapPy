@@ -115,6 +115,15 @@ const VARIABLES = {
   ] },
 };
 
+// A loop whose variable is an oval, not a workspace variable.
+const LOOP_OVAL = program([{
+  type: 'snappy_for_each', x: 40, y: 40,
+  inputs: {
+    VAR: { block: { type: 'snappy_local_get', fields: { NAME: 'item' } } },
+    LIST: { block: { type: 'lists_create_with' } },
+  },
+}]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -244,6 +253,14 @@ try {
   });
   await send('Runtime.enable');
   await send('Page.enable');
+
+  // Headless Chrome never paints, so requestAnimationFrame callbacks never run
+  // -- and Blockly flushes its event queue from rAF. Without this shim no change
+  // listener in the app ever fires, which makes every event-driven behaviour
+  // look broken when it is only unobserved.
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: 'window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 8);',
+  });
 
   // Navigate explicitly and wait for the document: evaluating against a page
   // that is still about:blank fails opaquely, and localStorage is per-origin.
@@ -458,6 +475,40 @@ try {
   check('the old name is gone',
     !(await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
       .includes('score'));
+  // 12. The loop's name oval: no workspace variable, and it grows back when
+  // dragged away, so pulling one out reads as taking a copy.
+  await loadProgram(LOOP_OVAL);
+  check('the loop names itself without a workspace variable',
+    (await evaluate('window.snappy.workspace.getAllVariables().length')) === 0);
+  check('the loop generates from its oval',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('for item in'));
+
+  const dragOut = await evaluate(`(() => {
+    const ws = window.snappy.workspace;
+    const loop = ws.getAllBlocks(false).find((b) => b.type === 'snappy_for_each');
+    if (!loop) return 'no loop block';
+    const oval = loop.getInputTargetBlock('VAR');
+    if (!oval) return 'loop has no name oval';
+    oval.outputConnection.disconnect();
+    oval.moveBy(0, 220);
+    return null;
+  })()`);
+  if (dragOut) throw new Error(dragOut);
+
+  const refilled = await waitFor('the loop to grow a new oval', `(() => {
+    const ws = window.snappy.workspace;
+    const loop = ws.getAllBlocks(false).find((b) => b.type === 'snappy_for_each');
+    const oval = loop && loop.getInputTargetBlock('VAR');
+    return oval ? oval.getFieldValue('NAME') : null;
+  })()`, 15000);
+  check('the loop grows a replacement oval', refilled === 'item', `named ${refilled}`);
+  check('the dragged-out oval survives as a separate block',
+    (await evaluate(
+      "window.snappy.workspace.getAllBlocks(false).filter((b) => b.type === 'snappy_local_get').length"))
+      === 2);
+  check('still no workspace variable after dragging one out',
+    (await evaluate('window.snappy.workspace.getAllVariables().length')) === 0);
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;
