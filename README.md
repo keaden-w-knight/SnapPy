@@ -149,6 +149,24 @@ so does not summon the stage.
 `buildLineMap` generates through the same function, or the two passes would
 disagree about which blocks count and the error highlighter would give up.
 
+Variable declarations follow the same rule. Blockly hoists `name = None` for
+every variable the *workspace* uses, so a `set x to ...` parked on the canvas
+still produced a declaration for a block that generates nothing. Only variables a
+root can reach are declared now.
+
+### The order it comes out in
+
+Roots are emitted **classes, then functions, then scripts**, so a program reads
+the way one is written by hand -- definitions above the code that calls them.
+Within each group the canvas order stands, so moving a definition up or down
+moves it in the script.
+
+That needed the standalone definition block to stop hoisting itself. Blockly's
+usual home for a function definition is the `definitions_` block, which
+`finish()` pastes above everything -- so a function jumped to the top no matter
+where its block sat. It returns its code now, and `program.ts` decides where it
+goes. Imports still hoist, because they have to come first to be valid Python.
+
 ## Functions
 
 Blockly's own `procedures_*` blocks model every parameter as a workspace

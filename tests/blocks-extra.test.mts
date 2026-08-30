@@ -74,13 +74,17 @@ const greetDef = {
 }
 
 {
-  // Ordinary variables are untouched.
+  // Ordinary variables are untouched. Hoisting is a property of the program, so
+  // these need a root: a variable only loose blocks mention is not declared.
   const code = gen(
-    [{ type: 'snappy_print', x: 0, y: 0,
-      inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'sId' } } } } } }],
+    [{ type: 'snappy_when_run', x: 0, y: 0, next: { block: {
+      type: 'snappy_print',
+      inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'sId' } } } } },
+    } } }],
     [{ name: 'score', id: 'sId' }],
   );
-  check('ordinary variables are still hoisted', code.includes('score = None'));
+  check('ordinary variables are still hoisted', code.includes('score = None'),
+    JSON.stringify(code.trim()));
 }
 
 {
@@ -196,12 +200,14 @@ check('identifier: already valid is untouched', toIdentifier('counter') === 'cou
 {
   // Read outside the loop, where the loop may never have run: keep the hoist.
   const code = gen(
-    [
-      { type: 'controls_forEach', x: 0, y: 0, fields: { VAR: { id: 'iId' } },
-        inputs: { LIST: { block: { type: 'lists_create_with' } } } },
-      { type: 'snappy_print', x: 0, y: 300,
-        inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'iId' } } } } } },
-    ],
+    [{ type: 'snappy_when_run', x: 0, y: 0, next: { block: {
+      type: 'controls_forEach', fields: { VAR: { id: 'iId' } },
+      inputs: { LIST: { block: { type: 'lists_create_with' } } },
+      next: { block: {
+        type: 'snappy_print',
+        inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'iId' } } } } },
+      } },
+    } } }],
     [{ name: 'i', id: 'iId' }],
   );
   check('a loop target read outside the loop keeps its hoist',

@@ -108,5 +108,114 @@ const say = (what: string, rest: object = {}) => ({
     usedTurtle.includes('import turtle'), JSON.stringify(usedTurtle.trim()));
 }
 
+// --- variables follow the roots too ----------------------------------------
+
+const withVars = (blocks: unknown[], variables: unknown[]) => {
+  ws.clear();
+  Blockly.serialization.workspaces.load(
+    { variables, blocks: { languageVersion: 0, blocks } } as never, ws);
+  return generateProgram(ws);
+};
+
+{
+  // A `set x to ...` parked on the canvas used to still produce `x = None`.
+  const code = withVars(
+    [
+      { type: 'snappy_when_run', x: 0, y: 0, next: { block: say('go') } },
+      { type: 'variables_set', x: 0, y: 300, fields: { VAR: { id: 'xId' } },
+        inputs: { VALUE: { shadow: { type: 'math_number', fields: { NUM: 1 } } } } },
+    ],
+    [{ name: 'x', id: 'xId' }],
+  );
+  check('a variable only a loose block uses is not declared',
+    !code.includes('x = None'), JSON.stringify(code.trim()));
+  check('nor is it assigned', !code.includes('x = 1'));
+  check('unreached variables -> valid Python', isValidPython(code));
+}
+
+{
+  // Reached from a root, it keeps its declaration.
+  const code = withVars(
+    [{ type: 'snappy_when_run', x: 0, y: 0, next: { block: {
+      type: 'snappy_print',
+      inputs: { VALUE: { block: { type: 'variables_get', fields: { VAR: { id: 'xId' } } } } },
+    } } }],
+    [{ name: 'x', id: 'xId' }],
+  );
+  check('a variable a root reaches is still declared',
+    code.includes('x = None'), JSON.stringify(code.trim()));
+}
+
+{
+  // Reached only from inside a function definition still counts.
+  const code = withVars(
+    [{ type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'f' },
+      extraState: { params: [] },
+      inputs: { DO: { block: { type: 'variables_set', fields: { VAR: { id: 'xId' } },
+        inputs: { VALUE: { shadow: { type: 'math_number', fields: { NUM: 2 } } } } } } } }],
+    [{ name: 'x', id: 'xId' }],
+  );
+  check('a variable used inside a definition is declared',
+    code.includes('x = None') && code.includes('global x'), JSON.stringify(code.trim()));
+}
+
+// --- the order a program reads in ------------------------------------------
+
+const orderOf = (code: string, ...needles: string[]) =>
+  needles.map((needle) => code.indexOf(needle));
+const ascending = (positions: number[]) =>
+  positions.every((value, i) => value >= 0 && (i === 0 || value > positions[i - 1]));
+
+{
+  // Deliberately laid out upside down: a script at the top, a class at the
+  // bottom. The script order must follow the kind, not the canvas.
+  const code = program([
+    { type: 'snappy_when_run', x: 0, y: 0, next: { block: say('go') } },
+    { type: 'snappy_function_def', x: 0, y: 200, fields: { NAME: 'helper' },
+      extraState: { params: [] }, inputs: { DO: { block: say('helping') } } },
+    { type: 'snappy_class_def', x: 0, y: 400, fields: { NAME: 'Dog' },
+      inputs: { BODY: { block: {
+        type: 'snappy_method_def', fields: { NAME: 'speak' },
+        extraState: { params: [{ name: 'self', type: 'value' }] },
+        inputs: {
+          PARAM0: { block: { type: 'snappy_local_get', fields: { NAME: 'self' } } },
+          DO: { block: say('woof') },
+        },
+      } } } },
+  ]);
+
+  check('classes come before functions, which come before scripts',
+    ascending(orderOf(code, 'class Dog:', 'def helper():', "print('go')")),
+    JSON.stringify(code.trim()));
+  check('ordering -> valid Python', isValidPython(code));
+}
+
+{
+  // Two of a kind keep their positions relative to each other.
+  const code = program([
+    { type: 'snappy_function_def', x: 0, y: 400, fields: { NAME: 'lower' },
+      extraState: { params: [] }, inputs: { DO: { block: say('lower') } } },
+    { type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'upper' },
+      extraState: { params: [] }, inputs: { DO: { block: say('upper') } } },
+  ]);
+  check('within a group the canvas order stands',
+    ascending(orderOf(code, 'def upper():', 'def lower():')),
+    JSON.stringify(code.trim()));
+}
+
+{
+  // Imports have to stay at the very top whatever else moves.
+  const code = program([
+    { type: 'snappy_when_run', x: 0, y: 400,
+      next: { block: { type: 'snappy_turtle_home' } } },
+    { type: 'snappy_function_def', x: 0, y: 0, fields: { NAME: 'helper' },
+      extraState: { params: [] }, inputs: { DO: { block: say('helping') } } },
+  ]);
+  check('imports stay above everything',
+    ascending(orderOf(code, 'import turtle', 'def helper():', 'turtle.home()')),
+    JSON.stringify(code.trim()));
+  check('imports first -> valid Python', isValidPython(code));
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall passed');
 process.exit(failures ? 1 : 0);

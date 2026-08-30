@@ -1,5 +1,6 @@
 import * as Blockly from 'blockly/core';
 import { pythonGenerator } from 'blockly/python';
+import { collectRoots } from './program';
 
 /**
  * Hoisting and `global` cleanup for Blockly's *stock* blocks.
@@ -76,23 +77,52 @@ function selfBoundNames(workspace: Blockly.Workspace): Set<string> {
 
 type GeneratorInternals = { definitions_: Record<string, string> };
 
+/** Variable names any root can actually reach. */
+function reachableNames(workspace: Blockly.Workspace): Set<string> {
+  const names = new Set<string>();
+  for (const root of collectRoots(workspace)) {
+    for (const block of root.getDescendants(true)) {
+      for (const model of block.getVarModels?.() ?? []) names.add(model.name);
+    }
+  }
+  return names;
+}
+
+/**
+ * Blockly declares every variable the *workspace* uses. Since only roots become
+ * the program, a `set x to ...` parked on the canvas was still producing a
+ * module-level `x = None` for a block that generates nothing -- a declaration
+ * with no program behind it.
+ *
+ * A declaration survives when a root reaches the variable and nothing else binds
+ * the name, and lines that match no workspace variable at all are left alone,
+ * because those are Blockly's developer variables rather than the user's.
+ */
 const baseInit = pythonGenerator.init.bind(pythonGenerator);
 pythonGenerator.init = function (workspace: Blockly.Workspace) {
   baseInit(workspace);
-
-  const skip = selfBoundNames(workspace);
-  if (!skip.size) return;
 
   const internals = pythonGenerator as unknown as GeneratorInternals;
   const declarations = internals.definitions_['variables'];
   if (!declarations) return;
 
-  // Compare against generated names: a variable may have been renamed to avoid
-  // colliding with a reserved word.
-  const generated = new Set([...skip].map((name) => pythonGenerator.getVariableName(name)));
+  const selfBound = selfBoundNames(workspace);
+  const reachable = reachableNames(workspace);
+
+  const keep = new Set<string>();
+  const known = new Set<string>();
+  for (const variable of workspace.getAllVariables()) {
+    const generated = pythonGenerator.getVariableName(variable.name);
+    known.add(generated);
+    if (reachable.has(variable.name) && !selfBound.has(variable.name)) keep.add(generated);
+  }
+
   internals.definitions_['variables'] = declarations
     .split('\n')
-    .filter((line) => !generated.has(line.split(' = ')[0]))
+    .filter((line) => {
+      const name = line.split(' = ')[0];
+      return keep.has(name) || !known.has(name);
+    })
     .join('\n');
 };
 
