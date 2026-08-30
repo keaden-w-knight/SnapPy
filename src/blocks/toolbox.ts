@@ -39,10 +39,22 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
         { kind: 'block', type: 'controls_whileUntil' },
         {
           kind: 'block',
-          type: 'controls_for',
-          inputs: { FROM: num(1), TO: num(10), BY: num(1) },
+          type: 'snappy_for_range',
+          inputs: {
+            // A real block, not a shadow: the name oval has to be draggable.
+            VAR: { block: { type: 'snappy_local_get', fields: { NAME: 'i' } } },
+            FROM: num(1),
+            TO: num(10),
+            BY: num(1),
+          },
         },
-        { kind: 'block', type: 'controls_forEach' },
+        {
+          kind: 'block',
+          type: 'snappy_for_each',
+          inputs: {
+            VAR: { block: { type: 'snappy_local_get', fields: { NAME: 'item' } } },
+          },
+        },
         { kind: 'block', type: 'controls_flow_statements' },
       ],
     },

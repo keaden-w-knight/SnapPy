@@ -3,6 +3,7 @@ import * as Blockly from 'blockly/core';
 import 'blockly/blocks'; // Must load before the restyle pass below.
 import { pythonGenerator, Order } from 'blockly/python';
 import './functions'; // Dropdown-based call blocks for the Functions category.
+import './loops'; // Loops whose variable is a draggable oval.
 import './variables'; // Local-variable blocks for the Variables category.
 
 /**

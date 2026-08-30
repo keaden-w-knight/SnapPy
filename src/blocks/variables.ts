@@ -1,5 +1,6 @@
 import * as Blockly from 'blockly/core';
 import { pythonGenerator, Order } from 'blockly/python';
+import { installVarSlot, slotName, toIdentifier } from './names';
 
 /**
  * Local variables: a name typed straight into the block, rather than one of
@@ -15,57 +16,39 @@ import { pythonGenerator, Order } from 'blockly/python';
  * NameError at runtime -- which the error highlighter points straight at.
  */
 
-const PYTHON_KEYWORDS = new Set([
-  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break',
-  'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally', 'for',
-  'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not',
-  'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
-]);
-
-/**
- * Coerce whatever was typed into a legal Python identifier. Runs as a field
- * validator, so the block always displays exactly the name it will generate --
- * no silent difference between what is on screen and what runs.
- */
-export function toIdentifier(raw: string | null): string {
-  let name = (raw ?? '').trim().replace(/[^A-Za-z0-9_]/g, '_');
-  if (!name) name = 'item';
-  if (/^[0-9]/.test(name)) name = `_${name}`;
-  if (PYTHON_KEYWORDS.has(name)) name = `${name}_`;
-  return name;
-}
-
-const nameField = () => new Blockly.FieldTextInput('counter', toIdentifier);
-
-Blockly.Blocks['snappy_local_set'] = {
-  init(this: Blockly.Block) {
-    this.appendValueInput('VALUE')
-      .appendField('make')
-      .appendField(nameField(), 'NAME')
-      .appendField('=');
-    this.setPreviousStatement(true);
-    this.setNextStatement(true);
-    this.setInputsInline(true);
-    this.setStyle('variable_blocks');
-    this.setTooltip(
-      'Create a variable that belongs to the function or loop it sits in.',
-    );
-  },
-};
-
 Blockly.Blocks['snappy_local_get'] = {
   init(this: Blockly.Block) {
-    this.appendDummyInput().appendField(nameField(), 'NAME');
+    this.appendDummyInput()
+      .appendField(new Blockly.FieldTextInput('counter', toIdentifier), 'NAME');
     this.setOutput(true); // Untyped, so it drops into any oval input.
     this.setStyle('variable_blocks');
     this.setTooltip('Use the value of a local variable.');
   },
 };
 
+/**
+ * The name is an oval in a socket rather than a text field, so it can be dragged
+ * out and reused -- the same interaction the loops use. See loops.ts.
+ */
+Blockly.Blocks['snappy_local_set'] = {
+  init(this: Blockly.Block) {
+    this.appendValueInput('VAR').appendField('make');
+    this.appendValueInput('VALUE').appendField('=');
+    this.setPreviousStatement(true);
+    this.setNextStatement(true);
+    this.setInputsInline(true);
+    this.setStyle('variable_blocks');
+    this.setTooltip(
+      'Create a variable that belongs to the function or loop it sits in. ' +
+        'Drag the name out to use it.',
+    );
+    installVarSlot(this);
+  },
+};
+
 pythonGenerator.forBlock['snappy_local_set'] = (block) => {
-  const name = toIdentifier(block.getFieldValue('NAME'));
   const value = pythonGenerator.valueToCode(block, 'VALUE', Order.NONE) || 'None';
-  return `${name} = ${value}\n`;
+  return `${slotName(block)} = ${value}\n`;
 };
 
 pythonGenerator.forBlock['snappy_local_get'] = (block) => [
@@ -95,6 +78,7 @@ Blockly.FieldVariable.dropdownCreate = function (this: Blockly.FieldVariable) {
 
 const LOCAL_BLOCKS = `
   <block type="snappy_local_set">
+    <value name="VAR"><block type="snappy_local_get"><field name="NAME">counter</field></block></value>
     <value name="VALUE"><shadow type="math_number"><field name="NUM">0</field></shadow></value>
   </block>
   <block type="snappy_local_get"></block>
