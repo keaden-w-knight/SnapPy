@@ -64,23 +64,44 @@ const COUNT = program([{
 
 const FUNCTIONS = program([
   {
-    type: 'procedures_defnoreturn', x: 40, y: 40, fields: { NAME: 'greet' },
-    inputs: { STACK: { block: { type: 'snappy_print',
+    type: 'snappy_function_def', x: 40, y: 40, fields: { NAME: 'greet' },
+    extraState: { params: [] },
+    inputs: { DO: { block: { type: 'snappy_print',
       inputs: { VALUE: text('hello from a function') } } } },
   },
-  { type: 'snappy_when_run', x: 40, y: 240,
-    next: { block: { type: 'snappy_call', fields: { NAME: 'greet' } } } },
+  { type: 'snappy_when_run', x: 40, y: 280,
+    next: { block: { type: 'snappy_call', fields: { NAME: 'greet' },
+      extraState: { params: [] } } } },
 ]);
 
 const FUNCTION_VALUE = program([
-  { type: 'procedures_defreturn', x: 40, y: 40, fields: { NAME: 'answer' },
-    inputs: { RETURN: numb(42) } },
-  { type: 'snappy_when_run', x: 40, y: 240,
+  { type: 'snappy_function_def', x: 40, y: 40, fields: { NAME: 'answer' },
+    extraState: { params: [] },
+    inputs: { DO: { block: { type: 'snappy_return', inputs: { VALUE: numb(42) } } } } },
+  { type: 'snappy_when_run', x: 40, y: 280,
     next: { block: { type: 'snappy_print', inputs: {
       VALUE: { block: { type: 'math_arithmetic', fields: { OP: 'ADD' }, inputs: {
-        A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' } } },
+        A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' },
+          extraState: { params: [] } } },
         B: numb(1),
       } } } } } } },
+]);
+
+// A function with one value parameter, used in its own body.
+const FUNCTION_PARAM = program([
+  {
+    type: 'snappy_function_def', x: 40, y: 40, fields: { NAME: 'greet' },
+    extraState: { params: [{ name: 'who', type: 'value' }] },
+    inputs: {
+      PARAM0: { block: { type: 'snappy_local_get', fields: { NAME: 'who' } } },
+      DO: { block: { type: 'snappy_print', inputs: {
+        VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'who' } } } } } },
+    },
+  },
+  { type: 'snappy_when_run', x: 40, y: 320,
+    next: { block: { type: 'snappy_call', fields: { NAME: 'greet' },
+      extraState: { params: [{ name: 'who', type: 'value' }] },
+      inputs: { ARG0: text('Ada') } } } },
 ]);
 
 // Divides by zero inside the second say block, so the failing block is known.
@@ -101,9 +122,10 @@ const NO_FUNCTIONS_YET = program([{ type: 'snappy_call', x: 40, y: 40 }]);
 
 // A function exists, but this call has not chosen one yet.
 const UNCHOSEN_CALL = program([
-  { type: 'procedures_defnoreturn', x: 40, y: 40, fields: { NAME: 'greet' },
-    inputs: { STACK: { block: { type: 'snappy_print', inputs: { VALUE: text('hi') } } } } },
-  { type: 'snappy_call', x: 40, y: 260 },
+  { type: 'snappy_function_def', x: 40, y: 40, fields: { NAME: 'greet' },
+    extraState: { params: [] },
+    inputs: { DO: { block: { type: 'snappy_print', inputs: { VALUE: text('hi') } } } } },
+  { type: 'snappy_call', x: 40, y: 300 },
 ]);
 
 // A global variable, plus a loop whose target is bound by the loop itself.
@@ -509,6 +531,63 @@ try {
       === 2);
   check('still no workspace variable after dragging one out',
     (await evaluate('window.snappy.workspace.getAllVariables().length')) === 0);
+  // 13. Function parameters: no workspace variable, right shape, and the
+  // definition grows a replacement when one is dragged into the body.
+  await loadProgram(FUNCTION_PARAM);
+  check('a parameter is not a workspace variable',
+    (await evaluate('window.snappy.workspace.getAllVariables().length')) === 0);
+  check('the parameter reaches the generated code',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('def greet(who):'));
+  check('the call passes the argument',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes("greet('Ada')"));
+
+  const pulled = await evaluate(`(() => {
+    const ws = window.snappy.workspace;
+    const def = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def');
+    if (!def) return 'no definition block';
+    const oval = def.getInputTargetBlock('PARAM0');
+    if (!oval) return 'no parameter oval';
+    oval.outputConnection.disconnect();
+    oval.moveBy(0, 260);
+    return null;
+  })()`);
+  if (pulled) throw new Error(pulled);
+
+  const grown = await waitFor('the definition to grow a replacement', `(() => {
+    const ws = window.snappy.workspace;
+    const def = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def');
+    const oval = def && def.getInputTargetBlock('PARAM0');
+    return oval ? oval.getFieldValue('NAME') : null;
+  })()`, 15000);
+  check('the definition grows a replacement parameter', grown === 'who', `named ${grown}`);
+  check('the function still generates its parameter',
+    (await evaluate("document.querySelector('#code .cm-content')?.textContent ?? ''"))
+      .includes('def greet(who):'));
+
+  // 14. Unused variables can be cleared, now that per-variable delete is gone.
+  await loadProgram(VARIABLES);
+  const leftover = await evaluate(`(() => {
+    const ws = window.snappy.workspace;
+    ws.createVariable('leftover');
+    return ws.getAllVariables().length;
+  })()`);
+  check('a variable with no blocks can exist', leftover === 2, `${leftover} variables`);
+  await evaluate(`(() => {
+    const ws = window.snappy.workspace;
+    const used = new Set();
+    for (const b of ws.getAllBlocks(false)) {
+      for (const m of (b.getVarModels ? b.getVarModels() : [])) used.add(m.getId());
+    }
+    for (const m of ws.getAllVariables()) {
+      if (!used.has(m.getId())) ws.deleteVariableById(m.getId());
+    }
+  })()`);
+  check('clearing unused variables leaves the used ones',
+    (await evaluate("JSON.stringify(window.snappy.workspace.getAllVariables().map((m) => m.name))"))
+      === '["score"]',
+    await evaluate("JSON.stringify(window.snappy.workspace.getAllVariables().map((m) => m.name))"));
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

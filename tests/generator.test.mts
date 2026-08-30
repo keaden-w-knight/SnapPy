@@ -111,7 +111,7 @@ for (const [name, blocks, expected] of cases) {
   check(`${name} -> valid Python`, isValidPython(code));
 }
 
-// --- dropdown-based function call blocks ------------------------------------
+// --- functions with draggable, typed parameters ------------------------------
 
 const withVar = (blocks: unknown[], variables: unknown[] = []) => {
   ws.clear();
@@ -120,98 +120,149 @@ const withVar = (blocks: unknown[], variables: unknown[] = []) => {
   return pythonGenerator.workspaceToCode(ws);
 };
 
+const param = (name: string, type: 'value' | 'boolean' = 'value') => ({ name, type });
+const paramOval = (name: string, type: 'value' | 'boolean' = 'value') => ({
+  block: {
+    type: type === 'boolean' ? 'snappy_local_get_boolean' : 'snappy_local_get',
+    fields: { NAME: name },
+  },
+});
+
 {
   // A no-argument function, called as a statement.
   const code = withVar([
     {
-      type: 'procedures_defnoreturn', x: 0, y: 0,
+      type: 'snappy_function_def', x: 0, y: 0,
       fields: { NAME: 'greet' },
-      inputs: { STACK: { block: { type: 'snappy_print',
-        inputs: { VALUE: text('hi') } } } },
+      extraState: { params: [] },
+      inputs: { DO: { block: { type: 'snappy_print', inputs: { VALUE: text('hi') } } } },
     },
-    { type: 'snappy_call', x: 0, y: 200, fields: { NAME: 'greet' } },
+    { type: 'snappy_call', x: 0, y: 300, fields: { NAME: 'greet' },
+      extraState: { params: [] } },
   ]);
   check('statement call generates a call',
     code.includes('def greet():') && code.includes('greet()'),
     JSON.stringify(code.trim()));
   check('statement call -> valid Python', isValidPython(code));
+  check('parameters are not workspace variables', ws.getAllVariables().length === 0);
 }
 
 {
-  // A function with a parameter, with a value plugged into the argument socket.
-  const code = withVar(
-    [
-      {
-        type: 'procedures_defnoreturn', x: 0, y: 0,
-        extraState: { params: [{ name: 'who', id: 'whoId' }] },
-        fields: { NAME: 'greet' },
-        inputs: { STACK: { block: { type: 'snappy_print',
-          inputs: { VALUE: text('hi') } } } },
-      },
-      {
-        type: 'snappy_call', x: 0, y: 200,
-        extraState: { params: ['who'] },
-        fields: { NAME: 'greet' },
-        inputs: { ARG0: text('Ada') },
-      },
-    ],
-    [{ name: 'who', id: 'whoId' }],
-  );
-  check('parameters reach the definition and the call',
-    code.includes('def greet(who):') && code.includes("greet('Ada')"),
-    JSON.stringify(code.trim()));
-  check('parameterised call -> valid Python', isValidPython(code));
-}
-
-{
-  // The oval block used inside another block's value input.
+  // A parameter, named by the oval in the definition's socket.
   const code = withVar([
     {
-      type: 'procedures_defreturn', x: 0, y: 0,
-      fields: { NAME: 'answer' },
-      inputs: { RETURN: numb(42) },
+      type: 'snappy_function_def', x: 0, y: 0,
+      fields: { NAME: 'greet' },
+      extraState: { params: [param('who')] },
+      inputs: {
+        PARAM0: paramOval('who'),
+        DO: { block: { type: 'snappy_print', inputs: {
+          VALUE: { block: { type: 'snappy_local_get', fields: { NAME: 'who' } } } } } },
+      },
     },
     {
-      type: 'snappy_print', x: 0, y: 200,
-      inputs: { VALUE: { block: { type: 'snappy_call_value',
-        fields: { NAME: 'answer' } } } },
+      type: 'snappy_call', x: 0, y: 300, fields: { NAME: 'greet' },
+      extraState: { params: [param('who')] },
+      inputs: { ARG0: text('Ada') },
     },
   ]);
-  check('oval call nests inside a value input',
-    code.includes('print(answer())'), JSON.stringify(code.trim()));
-  check('oval call -> valid Python', isValidPython(code));
+  check('a parameter reaches the definition and the call',
+    code.includes('def greet(who):') && code.includes("greet('Ada')") &&
+      code.includes('print(who)'),
+    JSON.stringify(code.trim()));
+  check('parameterised call -> valid Python', isValidPython(code));
+  check('a parameter never becomes a workspace variable',
+    ws.getAllVariables().length === 0, `${ws.getAllVariables().length} variables`);
+  check('no stray hoist for the parameter', !code.includes('who = None'));
 }
 
 {
-  // The oval block inside an operator, which is what "oval inputs" means.
+  // Return is its own statement, so one definition block covers both cases.
   const code = withVar([
     {
-      type: 'procedures_defreturn', x: 0, y: 0,
+      type: 'snappy_function_def', x: 0, y: 0,
       fields: { NAME: 'answer' },
-      inputs: { RETURN: numb(42) },
+      extraState: { params: [] },
+      inputs: { DO: { block: { type: 'snappy_return', inputs: { VALUE: numb(42) } } } },
     },
     {
-      type: 'snappy_print', x: 0, y: 200,
+      type: 'snappy_print', x: 0, y: 300,
+      inputs: { VALUE: { block: { type: 'snappy_call_value',
+        fields: { NAME: 'answer' }, extraState: { params: [] } } } },
+    },
+  ]);
+  check('return generates a return statement',
+    code.includes('def answer():') && code.includes('return 42'),
+    JSON.stringify(code.trim()));
+  check('oval call nests inside a value input', code.includes('print(answer())'));
+  check('return -> valid Python', isValidPython(code));
+}
+
+{
+  const code = withVar([
+    {
+      type: 'snappy_function_def', x: 0, y: 0,
+      fields: { NAME: 'answer' }, extraState: { params: [] },
+      inputs: { DO: { block: { type: 'snappy_return', inputs: { VALUE: numb(42) } } } },
+    },
+    {
+      type: 'snappy_print', x: 0, y: 300,
       inputs: { VALUE: { block: { type: 'math_arithmetic', fields: { OP: 'ADD' },
         inputs: {
-          A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' } } },
+          A: { block: { type: 'snappy_call_value', fields: { NAME: 'answer' },
+            extraState: { params: [] } } },
           B: numb(1),
         } } } },
     },
   ]);
-  check('oval call works inside an operator',
-    code.includes('answer() + 1'), JSON.stringify(code.trim()));
+  check('oval call works inside an operator', code.includes('answer() + 1'),
+    JSON.stringify(code.trim()));
   check('oval call in operator -> valid Python', isValidPython(code));
 }
 
 {
-  // An unset dropdown must still produce something Python can parse.
+  // A true/false parameter takes a hexagonal socket on both blocks.
+  const code = withVar([
+    {
+      type: 'snappy_function_def', x: 0, y: 0,
+      fields: { NAME: 'report' },
+      extraState: { params: [param('loud', 'boolean')] },
+      inputs: {
+        PARAM0: paramOval('loud', 'boolean'),
+        DO: { block: { type: 'controls_if', inputs: {
+          IF0: { block: { type: 'snappy_local_get_boolean', fields: { NAME: 'loud' } } },
+          DO0: { block: { type: 'snappy_print', inputs: { VALUE: text('HI') } } } } } },
+      },
+    },
+    {
+      type: 'snappy_call', x: 0, y: 300, fields: { NAME: 'report' },
+      extraState: { params: [param('loud', 'boolean')] },
+      inputs: { ARG0: { block: { type: 'logic_boolean', fields: { BOOL: 'TRUE' } } } },
+    },
+  ]);
+  check('a boolean parameter generates normally',
+    code.includes('def report(loud):') && code.includes('report(True)') &&
+      code.includes('if loud:'),
+    JSON.stringify(code.trim()));
+  check('boolean parameter -> valid Python', isValidPython(code));
+
+  const call = ws.getAllBlocks(false).find((b) => b.type === 'snappy_call')!;
+  check('the call socket is shaped for a boolean',
+    JSON.stringify(call.getInput('ARG0')?.connection?.getCheck()) === '["Boolean"]',
+    JSON.stringify(call.getInput('ARG0')?.connection?.getCheck()));
+
+  const definition = ws.getAllBlocks(false).find((b) => b.type === 'snappy_function_def')!;
+  check('the definition socket is shaped for a boolean',
+    JSON.stringify(definition.getInput('PARAM0')?.connection?.getCheck()) === '["Boolean"]');
+}
+
+{
   const code = withVar([
     { type: 'snappy_print', x: 0, y: 0,
       inputs: { VALUE: { block: { type: 'snappy_call_value' } } } },
   ]);
-  check('unset oval call falls back to None',
-    code.includes('print(None)'), JSON.stringify(code.trim()));
+  check('unset oval call falls back to None', code.includes('print(None)'),
+    JSON.stringify(code.trim()));
   check('unset oval call -> valid Python', isValidPython(code));
 }
 

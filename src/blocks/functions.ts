@@ -1,19 +1,230 @@
 import * as Blockly from 'blockly/core';
 import { pythonGenerator, Order } from 'blockly/python';
+import { toIdentifier } from './names';
+import { askForChoice } from '../ui/dialogs';
 
 /**
- * Call blocks that pick their target from a dropdown of the functions currently
- * defined, rather than Blockly's default of one fixed call block per function.
+ * Functions whose parameters are draggable ovals, not workspace variables.
  *
- * Two shapes, because Python allows both and the block shape is what tells a
- * learner which is which:
- *   snappy_call        statement -- `greet()` on its own line
- *   snappy_call_value  oval      -- `greet()` inside an operator or another input
+ * Blockly's own `procedures_*` blocks model each parameter as a workspace
+ * variable, so declaring `do_something(param1)` puts `param1` in every variable
+ * dropdown in the project. Here a parameter is a name block sitting in the
+ * definition's socket: drag it into the body to use it, and the definition grows
+ * a fresh one in its place.
  *
- * Both list every defined function. A function without an explicit return still
- * calls fine in an expression (it yields None), so filtering the oval block down
- * to only return-functions would hide functions for no real gain.
+ * A parameter also has a *shape*. A value parameter is an oval; a true/false one
+ * is a hexagon, which Zelos draws for a `Boolean` output. The call block's
+ * matching argument socket takes the same shape, so what fits where is visible
+ * rather than something to remember.
+ *
+ * There is one definition block rather than Blockly's separate with/without
+ * return pair, because Python draws no such distinction: `return` is a
+ * statement, and a function without one yields None.
  */
+
+export type ParamType = 'value' | 'boolean';
+
+export interface FunctionParam {
+  name: string;
+  type: ParamType;
+}
+
+export interface FunctionDef {
+  name: string;
+  params: FunctionParam[];
+}
+
+const DEF_BLOCK = 'snappy_function_def';
+
+const GETTER_FOR: Record<ParamType, string> = {
+  value: 'snappy_local_get',
+  boolean: 'snappy_local_get_boolean',
+};
+
+const TYPE_OF_GETTER: Record<string, ParamType> = {
+  snappy_local_get: 'value',
+  snappy_local_get_boolean: 'boolean',
+};
+
+const PLUS_ICON =
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">' +
+      '<circle cx="10" cy="10" r="9" fill="#ffffff" opacity="0.95"/>' +
+      '<path d="M10 5.5v9M5.5 10h9" stroke="#ff6680" stroke-width="2.6" ' +
+      'stroke-linecap="round"/></svg>',
+  );
+
+interface DefBlock extends Blockly.Block {
+  params_: FunctionParam[];
+  updateShape_(params: FunctionParam[]): void;
+  addParameter_(): void;
+  getFunctionDef(): FunctionDef;
+}
+
+const paramInput = (index: number) => `PARAM${index}`;
+const argInput = (index: number) => `ARG${index}`;
+
+const sameParams = (a: FunctionParam[], b: FunctionParam[]) =>
+  a.length === b.length && a.every((p, i) => p.name === b[i].name && p.type === b[i].type);
+
+/** Builds a name block of the right shape for a parameter. */
+function makeGetter(block: Blockly.Block, param: FunctionParam): Blockly.Block {
+  const getter = block.workspace.newBlock(GETTER_FOR[param.type]);
+  getter.setFieldValue(param.name, 'NAME');
+  const svg = getter as Blockly.BlockSvg;
+  if (svg.initSvg) {
+    svg.initSvg();
+    svg.render();
+  }
+  Blockly.Events.fire(new (Blockly.Events.get(Blockly.Events.BLOCK_CREATE))(getter));
+  return getter;
+}
+
+/**
+ * Keeps `params_` in step with the ovals actually in the sockets, and puts one
+ * back when it is dragged out -- the same "drag a copy" behaviour the loops use,
+ * so a parameter is never lost by being used.
+ */
+function syncParameters(this: DefBlock, event: Blockly.Events.Abstract) {
+  if (this.isInFlyout || !this.workspace || this.isDeadOrDying()) return;
+  if ((this.workspace as Blockly.WorkspaceSvg).isDragging?.()) return;
+
+  const previousGroup = Blockly.Events.getGroup();
+  Blockly.Events.setGroup(event.group || true);
+  try {
+    this.params_.forEach((param, i) => {
+      const socket = this.getInput(paramInput(i));
+      if (!socket?.connection) return;
+
+      const oval = socket.connection.targetBlock();
+      if (!oval) {
+        socket.connection.connect(makeGetter(this, param).outputConnection!);
+        return;
+      }
+      // Renaming the oval renames the parameter; call blocks follow from there.
+      param.name = toIdentifier(oval.getFieldValue('NAME') ?? param.name);
+      param.type = TYPE_OF_GETTER[oval.type] ?? param.type;
+    });
+  } finally {
+    Blockly.Events.setGroup(previousGroup);
+  }
+}
+
+Blockly.Blocks[DEF_BLOCK] = {
+  params_: [] as FunctionParam[],
+
+  init(this: DefBlock) {
+    this.appendDummyInput('HEADER')
+      .appendField('to')
+      .appendField(new Blockly.FieldTextInput('do_something', toIdentifier), 'NAME');
+    this.appendDummyInput('ADD').appendField(
+      new Blockly.FieldImage(PLUS_ICON, 20, 20, 'add input', () => this.addParameter_()),
+      'ADD_BUTTON',
+    );
+    this.appendStatementInput('DO').appendField('do');
+    this.setInputsInline(true);
+    this.setStyle('procedure_blocks');
+    this.setTooltip('Define a function. Drag its inputs into the body to use them.');
+    // Registered explicitly: Blockly wires onchange during doInit_, which runs
+    // before this definition's own properties would otherwise be consulted.
+    this.setOnChange(syncParameters);
+  },
+
+  saveExtraState(this: DefBlock) {
+    return { params: this.params_ };
+  },
+
+  loadExtraState(this: DefBlock, state: { params?: FunctionParam[] }) {
+    this.updateShape_(state.params ?? []);
+  },
+
+  getFunctionDef(this: DefBlock): FunctionDef {
+    return { name: toIdentifier(this.getFieldValue('NAME')), params: [...this.params_] };
+  },
+
+  updateShape_(this: DefBlock, params: FunctionParam[]) {
+    if (sameParams(params, this.params_)) return;
+
+    for (let i = 0; i < this.params_.length; i++) {
+      if (this.getInput(paramInput(i))) this.removeInput(paramInput(i));
+    }
+
+    this.params_ = params.map((param) => ({ ...param }));
+    this.params_.forEach((param, i) => {
+      const input = this.appendValueInput(paramInput(i));
+      if (param.type === 'boolean') input.setCheck('Boolean');
+      // Appending puts it last, so pull it back in front of the + button.
+      this.moveInputBefore(paramInput(i), 'ADD');
+    });
+  },
+
+  addParameter_(this: DefBlock) {
+    const taken = new Set(this.params_.map((param) => param.name));
+    let suggestion = `input${this.params_.length + 1}`;
+    while (taken.has(suggestion)) suggestion += '_';
+
+    askForChoice({
+      message: 'Add an input to this function:',
+      defaultValue: suggestion,
+      choices: [
+        { label: 'value (oval)', value: 'value' },
+        { label: 'true / false (hexagon)', value: 'boolean' },
+      ],
+      onDone: (result) => {
+        if (!result) return;
+        const name = toIdentifier(result.text);
+        if (this.params_.some((param) => param.name === name)) {
+          Blockly.dialog.alert(`This function already has an input called "${name}".`);
+          return;
+        }
+        Blockly.Events.setGroup(true);
+        try {
+          this.updateShape_([...this.params_, { name, type: result.choice as ParamType }]);
+        } finally {
+          Blockly.Events.setGroup(false);
+        }
+      },
+    });
+  },
+
+  /** Removing an input is rare enough to belong in the context menu. */
+  customContextMenu(
+    this: DefBlock,
+    options: Blockly.ContextMenuRegistry.LegacyContextMenuOption[],
+  ) {
+    if (this.isInFlyout) return;
+    for (const param of this.params_) {
+      options.push({
+        text: `Remove input "${param.name}"`,
+        enabled: true,
+        callback: () => {
+          Blockly.Events.setGroup(true);
+          try {
+            this.updateShape_(this.params_.filter((other) => other.name !== param.name));
+          } finally {
+            Blockly.Events.setGroup(false);
+          }
+        },
+      });
+    }
+  },
+};
+
+// --- looking functions up ---------------------------------------------------
+
+export function listFunctions(workspace: Blockly.Workspace): FunctionDef[] {
+  return workspace
+    .getBlocksByType(DEF_BLOCK, false)
+    .map((block) => (block as DefBlock).getFunctionDef())
+    .filter((def) => def.name);
+}
+
+export function findFunction(name: string, workspace: Blockly.Workspace): FunctionDef | null {
+  return listFunctions(workspace).find((def) => def.name === name) ?? null;
+}
+
+// --- call blocks ------------------------------------------------------------
 
 const UNSET = '';
 /** Shown when functions exist but none has been picked yet. */
@@ -21,39 +232,24 @@ const SELECT_PROMPT = 'select a function';
 /** Shown when there is nothing to pick. Choosing it is a no-op. */
 const NONE_DEFINED = 'define a function first';
 
-type ProcedureTuple = [string, string[], boolean];
-
-interface ProcedureDefBlock extends Blockly.Block {
-  getProcedureDef(): ProcedureTuple;
-}
-
 interface CallBlock extends Blockly.Block {
-  params_: string[];
-  updateShape_(params: string[]): void;
+  params_: FunctionParam[];
+  updateShape_(params: FunctionParam[]): void;
 }
 
-/** Every function defined in the workspace, both kinds, sorted by name. */
-function procedureOptions(this: Blockly.Field): Blockly.MenuOption[] {
+function functionOptions(this: Blockly.Field): Blockly.MenuOption[] {
   const owner = this.getSourceBlock()?.workspace as
     | (Blockly.Workspace & { isFlyout?: boolean; targetWorkspace?: Blockly.Workspace })
     | undefined;
-  // A block sitting in the flyout belongs to the flyout's own workspace, which
-  // holds only the palette's sample blocks. Ask the workspace it will be dropped
-  // into, so the menu offers the project's real functions.
+  // A block in the flyout belongs to the flyout's own workspace, which holds
+  // only palette samples; ask the one it will be dropped into.
   const workspace = owner?.isFlyout ? owner.targetWorkspace : owner;
-  const names: string[] = [];
-
-  if (workspace) {
-    const [withoutReturn, withReturn] = Blockly.Procedures.allProcedures(workspace);
-    for (const [name] of [...withoutReturn, ...withReturn]) names.push(name);
-    names.sort((a, b) => a.localeCompare(b));
-  }
+  const names = workspace ? listFunctions(workspace).map((def) => def.name) : [];
+  names.sort((a, b) => a.localeCompare(b));
 
   if (!names.length) return [[NONE_DEFINED, UNSET]];
-
   const options: Blockly.MenuOption[] = names.map((name) => [name, name]);
-  // The prompt is only offered while nothing is chosen, so it cannot be picked
-  // to un-choose a function by accident.
+  // Offered only while nothing is chosen, so it cannot un-choose by accident.
   if (this.getValue() === UNSET) options.unshift([SELECT_PROMPT, UNSET]);
   return options;
 }
@@ -61,13 +257,12 @@ function procedureOptions(this: Blockly.Field): Blockly.MenuOption[] {
 /**
  * A dropdown that never rewrites its own value.
  *
- * Blockly's FieldDropdown rejects any value missing from the current option
- * list and falls back to the first option. With a dynamic list that is a trap:
- * the list is empty while a call block is being deserialised ahead of its
- * definition, while the block sits in the flyout, and briefly during some
- * workspace edits -- so a chosen function would silently revert to the
- * placeholder. Here the name is authoritative, and a name with no matching
- * definition is reported by onchange() as a warning instead.
+ * Blockly's FieldDropdown rejects a value missing from the current option list
+ * and falls back to the first entry. That list is empty while a call block is
+ * deserialised ahead of its definition and for a block in the flyout, so a
+ * chosen function silently reverted to the placeholder. It also caches both the
+ * option list (first built in the constructor, before the field has a source
+ * block) and the display label, each of which froze at the placeholder.
  */
 class FunctionNameField extends Blockly.FieldDropdown {
   // Both overloads must be restated, or the class narrows to Field<string> and
@@ -78,13 +273,6 @@ class FunctionNameField extends Blockly.FieldDropdown {
     return typeof newValue === 'string' ? newValue : null;
   }
 
-  /**
-   * FieldDropdown caches the chosen option -- label included -- in
-   * selectedOption_ when the value is set. That happens in the constructor,
-   * before the field has a source block, so the label froze as the "no
-   * functions" placeholder and stayed there even once functions existed.
-   * Deriving the label from the live options instead keeps it honest.
-   */
   protected override getText_(): string | null {
     const value = this.getValue();
     const match = this.getOptions().find(([, option]) => option === value);
@@ -92,55 +280,50 @@ class FunctionNameField extends Blockly.FieldDropdown {
   }
 
   override getOptions(): Blockly.MenuOption[] {
-    // Never use Blockly's cache. The first generation happens in the field
-    // constructor, before the field has a source block -- so it caches the
-    // "no functions" placeholder and would keep serving it forever, including
-    // for blocks dragged out of the flyout.
-    const options = super.getOptions(false);
+    const options = super.getOptions(false); // never cached; see above
     const value = this.getValue();
-    // Keep the selected name present so the menu shows it and Blockly's own
-    // lookup for the display label succeeds.
-    if (typeof value === 'string' && value !== UNSET &&
-        !options.some(([, option]) => option === value)) {
+    if (
+      typeof value === 'string' &&
+      value !== UNSET &&
+      !options.some(([, option]) => option === value)
+    ) {
       return [[value, value], ...options];
     }
     return options;
   }
 }
 
-/** Shared behaviour: keep the argument sockets matching the chosen function. */
 const CALL_MIXIN = {
-  params_: [] as string[],
+  params_: [] as FunctionParam[],
 
   saveExtraState(this: CallBlock) {
     return { params: this.params_ };
   },
 
-  loadExtraState(this: CallBlock, state: { params?: string[] }) {
+  loadExtraState(this: CallBlock, state: { params?: FunctionParam[] }) {
     this.updateShape_(state.params ?? []);
   },
 
   /**
-   * Rebuild the argument inputs. Connections are carried across by parameter
-   * name, so renaming an unrelated parameter does not detach a value the user
-   * plugged in somewhere else.
+   * Rebuild the argument sockets, each shaped for its parameter. Connections are
+   * carried across by parameter name, so renaming one input does not detach
+   * values plugged into the others.
    */
-  updateShape_(this: CallBlock, params: string[]) {
-    const unchanged =
-      params.length === this.params_.length && params.every((p, i) => p === this.params_[i]);
-    if (unchanged) return;
+  updateShape_(this: CallBlock, params: FunctionParam[]) {
+    if (sameParams(params, this.params_)) return;
 
     const attached = new Map<string, Blockly.Connection>();
-    this.params_.forEach((name, i) => {
-      const target = this.getInput(`ARG${i}`)?.connection?.targetConnection;
-      if (target) attached.set(name, target);
-      if (this.getInput(`ARG${i}`)) this.removeInput(`ARG${i}`);
+    this.params_.forEach((param, i) => {
+      const target = this.getInput(argInput(i))?.connection?.targetConnection;
+      if (target) attached.set(param.name, target);
+      if (this.getInput(argInput(i))) this.removeInput(argInput(i));
     });
 
-    this.params_ = [...params];
-    params.forEach((name, i) => {
-      const input = this.appendValueInput(`ARG${i}`).appendField(name, `ARGNAME${i}`);
-      const previous = attached.get(name);
+    this.params_ = params.map((param) => ({ ...param }));
+    this.params_.forEach((param, i) => {
+      const input = this.appendValueInput(argInput(i)).appendField(param.name, `ARGNAME${i}`);
+      if (param.type === 'boolean') input.setCheck('Boolean');
+      const previous = attached.get(param.name);
       if (previous) input.connection?.connect(previous);
     });
   },
@@ -148,24 +331,20 @@ const CALL_MIXIN = {
   onchange(this: CallBlock, event: Blockly.Events.Abstract) {
     if (this.isInFlyout || !this.workspace || event.isUiEvent) return;
 
-    const name = this.getFieldValue('NAME');
-    if (!name) {
+    const chosen = this.getFieldValue('NAME');
+    if (!chosen) {
       this.setWarningText(null);
       this.updateShape_([]);
       return;
     }
 
-    const definition = Blockly.Procedures.getDefinition(name, this.workspace) as
-      | ProcedureDefBlock
-      | undefined;
-
-    if (!definition?.getProcedureDef) {
-      this.setWarningText(`There is no function called "${name}".`);
+    const def = findFunction(chosen, this.workspace);
+    if (!def) {
+      this.setWarningText(`There is no function called "${chosen}".`);
       return;
     }
-
     this.setWarningText(null);
-    this.updateShape_(definition.getProcedureDef()[1]);
+    this.updateShape_(def.params);
   },
 };
 
@@ -173,7 +352,7 @@ Blockly.Blocks['snappy_call'] = {
   init(this: CallBlock) {
     this.appendDummyInput('HEADER')
       .appendField('run')
-      .appendField(new FunctionNameField(procedureOptions), 'NAME');
+      .appendField(new FunctionNameField(functionOptions), 'NAME');
     this.setPreviousStatement(true);
     this.setNextStatement(true);
     this.setInputsInline(true);
@@ -187,8 +366,8 @@ Blockly.Blocks['snappy_call_value'] = {
   init(this: CallBlock) {
     this.appendDummyInput('HEADER')
       .appendField('result of')
-      .appendField(new FunctionNameField(procedureOptions), 'NAME');
-    this.setOutput(true); // No type check: it fits any oval input.
+      .appendField(new FunctionNameField(functionOptions), 'NAME');
+    this.setOutput(true); // untyped: it fits any oval input
     this.setInputsInline(true);
     this.setStyle('procedure_blocks');
     this.setTooltip('Use what one of your functions returns, inside another block.');
@@ -196,24 +375,73 @@ Blockly.Blocks['snappy_call_value'] = {
   ...CALL_MIXIN,
 };
 
+Blockly.common.defineBlocksWithJsonArray([
+  {
+    type: 'snappy_return',
+    message0: 'return %1',
+    args0: [{ type: 'input_value', name: 'VALUE' }],
+    previousStatement: null,
+    inputsInline: true,
+    style: 'procedure_blocks',
+    tooltip: 'Send a value back to whoever called this function.',
+  },
+]);
+
+// --- generators -------------------------------------------------------------
+
+type GeneratorInternals = {
+  definitions_: Record<string, string>;
+  nameDB_?: Blockly.Names;
+};
+
+function procedureName(raw: string): string {
+  const db = (pythonGenerator as unknown as GeneratorInternals).nameDB_;
+  return db ? db.getName(raw, Blockly.Names.NameType.PROCEDURE) : raw;
+}
+
 /**
- * The generator must use the same name database as the definition, or a function
- * named e.g. `print` would be called under its original name while being defined
- * under a de-duplicated one.
+ * Only variables the body *assigns* need a `global`; reading one already finds
+ * the module-level value. Blockly's own procedure blocks declare every workspace
+ * variable regardless, which is where the stray `global x` came from.
  */
-type WithNameDB = { nameDB_?: Blockly.Names };
+function assignedGlobals(block: Blockly.Block): string[] {
+  const names = new Set<string>();
+  for (const descendant of block.getDescendants(false)) {
+    if (descendant.type !== 'variables_set' && descendant.type !== 'math_change') continue;
+    for (const model of descendant.getVarModels?.() ?? []) {
+      names.add(pythonGenerator.getVariableName(model.name));
+    }
+  }
+  return [...names].sort();
+}
+
+pythonGenerator.forBlock[DEF_BLOCK] = (block, generator) => {
+  const def = (block as DefBlock).getFunctionDef();
+  const name = procedureName(def.name);
+  const params = def.params.map((param) => toIdentifier(param.name)).join(', ');
+
+  const globals = assignedGlobals(block);
+  const globalLine = globals.length ? `${generator.INDENT}global ${globals.join(', ')}\n` : '';
+  const body = generator.statementToCode(block, 'DO') || `${generator.INDENT}pass\n`;
+
+  const internals = generator as unknown as GeneratorInternals;
+  internals.definitions_[`%${name}`] = `def ${name}(${params}):\n${globalLine}${body}`;
+  return null;
+};
+
+pythonGenerator.forBlock['snappy_return'] = (block) => {
+  const value = pythonGenerator.valueToCode(block, 'VALUE', Order.NONE);
+  return value ? `return ${value}\n` : 'return\n';
+};
 
 function callExpression(block: Blockly.Block): string | null {
   const chosen = block.getFieldValue('NAME');
   if (!chosen) return null;
-
-  const db = (pythonGenerator as unknown as WithNameDB).nameDB_;
-  const name = db ? db.getName(chosen, Blockly.Names.NameType.PROCEDURE) : chosen;
   const params = (block as CallBlock).params_ ?? [];
   const args = params.map(
-    (_, i) => pythonGenerator.valueToCode(block, `ARG${i}`, Order.NONE) || 'None',
+    (_, i) => pythonGenerator.valueToCode(block, argInput(i), Order.NONE) || 'None',
   );
-  return `${name}(${args.join(', ')})`;
+  return `${procedureName(chosen)}(${args.join(', ')})`;
 }
 
 pythonGenerator.forBlock['snappy_call'] = (block) => {
@@ -227,157 +455,15 @@ pythonGenerator.forBlock['snappy_call_value'] = (block) => {
   return call ? [call, Order.FUNCTION_CALL] : ['None', Order.ATOMIC];
 };
 
-/**
- * Replaces Blockly's built-in PROCEDURE flyout, which lists one call block per
- * defined function. Here the two dropdown blocks cover every function, so the
- * palette stays the same size no matter how many are defined.
- */
+// --- palette ----------------------------------------------------------------
+
 export const FUNCTIONS_CATEGORY = 'SNAPPY_FUNCTIONS';
 
 export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
   workspace.registerToolboxCategoryCallback(FUNCTIONS_CATEGORY, () => [
-    { kind: 'block', type: 'procedures_defnoreturn' },
-    { kind: 'block', type: 'procedures_defreturn' },
+    { kind: 'block', type: DEF_BLOCK },
     { kind: 'block', type: 'snappy_call' },
     { kind: 'block', type: 'snappy_call_value' },
-    { kind: 'block', type: 'procedures_ifreturn' },
+    { kind: 'block', type: 'snappy_return' },
   ]);
-}
-
-/** Blocks that introduce a name in Python: function parameters and loop targets. */
-const LOOP_BLOCKS = new Set(['controls_for', 'controls_forEach']);
-
-function bindsName(block: Blockly.Block, name: string): boolean {
-  const asProcedure = block as unknown as Partial<ProcedureDefBlock>;
-  if (typeof asProcedure.getProcedureDef === 'function') {
-    return asProcedure.getProcedureDef()[1].includes(name);
-  }
-  if (LOOP_BLOCKS.has(block.type)) {
-    return (block.getVarModels?.() ?? []).some((model) => model.name === name);
-  }
-  return false;
-}
-
-/** Is every use of this name inside something that assigns it first? */
-function boundAt(block: Blockly.Block, name: string): boolean {
-  for (let current: Blockly.Block | null = block; current; current = current.getSurroundParent()) {
-    if (bindsName(current, name)) return true;
-  }
-  return false;
-}
-
-/**
- * Blockly hoists `name = None` for every variable the workspace uses, which
- * catches names Python already binds for you: function parameters, and the
- * target of a `for` loop. `def greet(who)` produced a module-level `who = None`,
- * and `for i in x` produced `i = None`. Both are noise in the code pane, which
- * is the artefact this app exists to show.
- *
- * A name is only dropped when *every* block using it sits inside something that
- * binds it -- the function whose parameter it is, or the loop that assigns it.
- * Used anywhere else it keeps its declaration, because there it really can be
- * read before assignment (an empty list means the loop body never runs).
- */
-function selfBoundNames(workspace: Blockly.Workspace): Set<string> {
-  const candidates = new Set<string>();
-
-  for (const block of workspace.getAllBlocks(false)) {
-    const asProcedure = block as unknown as Partial<ProcedureDefBlock>;
-    if (typeof asProcedure.getProcedureDef === 'function') {
-      for (const param of asProcedure.getProcedureDef()[1]) candidates.add(param);
-    }
-    if (LOOP_BLOCKS.has(block.type)) {
-      for (const model of block.getVarModels?.() ?? []) candidates.add(model.name);
-    }
-  }
-  if (!candidates.size) return candidates;
-
-  for (const block of workspace.getAllBlocks(false)) {
-    for (const model of block.getVarModels?.() ?? []) {
-      if (candidates.has(model.name) && !boundAt(block, model.name)) {
-        candidates.delete(model.name);
-      }
-    }
-  }
-  return candidates;
-}
-
-type GeneratorInternals = { definitions_: Record<string, string> };
-
-const baseInit = pythonGenerator.init.bind(pythonGenerator);
-pythonGenerator.init = function (workspace: Blockly.Workspace) {
-  baseInit(workspace);
-
-  const skip = selfBoundNames(workspace);
-  if (!skip.size) return;
-
-  const internals = pythonGenerator as unknown as GeneratorInternals;
-  const declarations = internals.definitions_['variables'];
-  if (!declarations) return;
-
-  // Compare against generated names: a variable may have been renamed to avoid
-  // colliding with a reserved word.
-  const generated = new Set([...skip].map((name) => pythonGenerator.getVariableName(name)));
-  internals.definitions_['variables'] = declarations
-    .split('\n')
-    .filter((line) => !generated.has(line.split(' = ')[0]))
-    .join('\n');
-};
-
-/**
- * Blockly emits `global a, b` at the top of every function for every workspace
- * variable that is not one of that function's parameters -- whether or not the
- * body mentions it. So defining any global variable anywhere puts its name
- * inside every function, which reads as though the function uses it.
- *
- * Names the body never references are narrowed away. A `global` for a variable
- * that is only read is a no-op anyway, and one for a variable that is never
- * touched is pure noise, so dropping them cannot change behaviour. Names that
- * are not workspace variables (Blockly's developer variables) are left alone.
- */
-function narrowGlobals(block: Blockly.Block, code: string): string {
-  const lines = code.split('\n');
-  const defIndex = lines.findIndex((line) => line.startsWith('def '));
-  if (defIndex === -1) return code;
-
-  // Blockly always emits the global line first in the body, so match it by
-  // position rather than by scanning -- user code could contain the word too.
-  const globalLine = lines[defIndex + 1] ?? '';
-  const match = /^(\s+)global (.+)$/.exec(globalLine);
-  if (!match) return code;
-
-  const referenced = new Set<string>();
-  for (const descendant of block.getDescendants(false)) {
-    if (descendant === block) continue; // its own params are not globals
-    for (const model of descendant.getVarModels?.() ?? []) {
-      referenced.add(pythonGenerator.getVariableName(model.name));
-    }
-  }
-  const workspaceVars = new Set(
-    block.workspace.getAllVariables().map((v) => pythonGenerator.getVariableName(v.name)),
-  );
-
-  const declared = match[2].split(', ');
-  const kept = declared.filter((name) => referenced.has(name) || !workspaceVars.has(name));
-  if (kept.length === declared.length) return code;
-
-  if (kept.length) lines[defIndex + 1] = match[1] + 'global ' + kept.join(', ');
-  else lines.splice(defIndex + 1, 1);
-  return lines.join('\n');
-}
-
-// The definition generators return null and stash their code in definitions_,
-// so the narrowing has to happen there rather than on a returned string.
-for (const type of ['procedures_defnoreturn', 'procedures_defreturn'] as const) {
-  const original = pythonGenerator.forBlock[type];
-  if (!original) continue;
-  pythonGenerator.forBlock[type] = function (block, generator) {
-    const definitions = (generator as unknown as GeneratorInternals).definitions_;
-    const before = new Set(Object.keys(definitions));
-    const result = original.call(this, block, generator);
-    for (const key of Object.keys(definitions)) {
-      if (!before.has(key)) definitions[key] = narrowGlobals(block, definitions[key]);
-    }
-    return result;
-  };
 }

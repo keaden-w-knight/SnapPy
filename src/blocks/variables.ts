@@ -27,6 +27,25 @@ Blockly.Blocks['snappy_local_get'] = {
 };
 
 /**
+ * The true/false shape of the same thing. Zelos draws a `Boolean` output as a
+ * hexagon, so a boolean parameter looks like the sockets it can drop into.
+ */
+Blockly.Blocks['snappy_local_get_boolean'] = {
+  init(this: Blockly.Block) {
+    this.appendDummyInput()
+      .appendField(new Blockly.FieldTextInput('flag', toIdentifier), 'NAME');
+    this.setOutput(true, 'Boolean');
+    this.setStyle('variable_blocks');
+    this.setTooltip('Use the value of a local true/false variable.');
+  },
+};
+
+pythonGenerator.forBlock['snappy_local_get_boolean'] = (block) => [
+  toIdentifier(block.getFieldValue('NAME')),
+  Order.ATOMIC,
+];
+
+/**
  * The name is an oval in a socket rather than a text field, so it can be dragged
  * out and reused -- the same interaction the loops use. See loops.ts.
  */
@@ -84,11 +103,46 @@ const LOCAL_BLOCKS = `
   <block type="snappy_local_get"></block>
 `;
 
+/**
+ * Deleting a variable is gone from the dropdown, so this is how a name that is
+ * no longer used leaves the palette. It only removes variables with zero blocks
+ * referencing them, which makes it safe to press without reading carefully --
+ * the property the per-variable delete lacked.
+ */
+const CLEANUP_CALLBACK = 'SNAPPY_CLEAN_VARIABLES';
+
+function unusedVariables(workspace: Blockly.Workspace): Blockly.VariableModel[] {
+  const used = new Set<string>();
+  for (const block of workspace.getAllBlocks(false)) {
+    for (const model of block.getVarModels?.() ?? []) used.add(model.getId());
+  }
+  return workspace.getAllVariables().filter((model) => !used.has(model.getId()));
+}
+
 export function registerVariablesCategory(workspace: Blockly.WorkspaceSvg) {
+  workspace.registerButtonCallback(CLEANUP_CALLBACK, (button) => {
+    const ws = button.getTargetWorkspace();
+    const unused = unusedVariables(ws);
+    if (!unused.length) {
+      Blockly.dialog.alert('Every variable is being used by a block.');
+      return;
+    }
+    const names = unused.map((model) => model.name).join(', ');
+    Blockly.dialog.confirm(`Remove ${unused.length} unused variable(s)? (${names})`, (ok) => {
+      if (!ok) return;
+      for (const model of unused) ws.deleteVariableById(model.getId());
+      ws.refreshToolboxSelection();
+    });
+  });
+
   workspace.registerToolboxCategoryCallback(VARIABLES_CATEGORY, (ws) => {
     const items = Blockly.Variables.flyoutCategory(ws as Blockly.WorkspaceSvg);
     // flyoutCategory returns XML elements, so the additions have to be XML too.
-    const extra = Blockly.utils.xml.textToDom(`<xml>${LOCAL_BLOCKS}</xml>`);
+    const extra = Blockly.utils.xml.textToDom(
+      `<xml>${LOCAL_BLOCKS}` +
+        `<button text="Remove unused variables" callbackKey="${CLEANUP_CALLBACK}"></button>` +
+        `</xml>`,
+    );
     items.push(...Array.from(extra.children));
     return items;
   });
