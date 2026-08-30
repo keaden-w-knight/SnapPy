@@ -14,7 +14,9 @@
     "tauri": "tauri",
     "icons": "node scripts/make-icons.mjs",
     "test": "node scripts/test.mjs",
-    "test:browser": "node scripts/test-browser.mjs"
+    "test:browser": "node scripts/test-browser.mjs",
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name snappy",
+    "test:build": "npm run build && node scripts/test-build.mjs"
   },
   "dependencies": {
     "@codemirror/lang-python": "^6.1.6",
