@@ -83,6 +83,19 @@ const FUNCTION_VALUE = program([
       } } } } } } },
 ]);
 
+// Divides by zero inside the second say block, so the failing block is known.
+const BOOM = program([{
+  type: 'snappy_when_run', x: 40, y: 40,
+  next: { block: {
+    type: 'snappy_print', id: 'okBlock', inputs: { VALUE: text('starting') },
+    next: { block: {
+      type: 'snappy_print', id: 'boomBlock',
+      inputs: { VALUE: { block: { type: 'math_arithmetic', fields: { OP: 'DIVIDE' },
+        inputs: { A: numb(1), B: numb(0) } } } },
+    } },
+  } },
+}]);
+
 // --- harness ----------------------------------------------------------------
 
 let failures = 0;
@@ -293,6 +306,29 @@ try {
   const valueOut = await waitFor('oval call output',
     `(() => { const t = ${OUT}; return t.includes('43') ? t : null; })()`, 60000);
   check('oval call returns a usable value', true, JSON.stringify(valueOut.trim()));
+  // 9. A runtime error blames the block that caused it.
+  await loadProgram(BOOM);
+  await evaluate("document.querySelector('#run').click()");
+  await waitFor('the traceback',
+    `(() => { const t = ${OUT}; return t.includes('ZeroDivisionError') ? t : null; })()`, 60000);
+
+  const blamed = await waitFor('a highlighted block',
+    "document.querySelector('.snappy-error-block')?.getAttribute('data-id') ?? null", 15000);
+  check('the failing block is highlighted', blamed === 'boomBlock', `highlighted ${blamed}`);
+  check('exactly one block is highlighted',
+    (await evaluate("document.querySelectorAll('.snappy-error-block').length")) === 1);
+  check('the highlight is red',
+    (await evaluate(`(() => {
+      const el = document.querySelector('.snappy-error-block > .blocklyPath');
+      return el ? getComputedStyle(el).stroke : '';
+    })()`)).replace(/ /g, '') === 'rgb(209,52,56)');
+
+  // Editing the blocks clears a stale highlight.
+  await evaluate("document.querySelector('#clear').click()");
+  await evaluate("document.querySelector('#run').click()");
+  await waitFor('highlight cleared on re-run',
+    "(() => document.querySelectorAll('.snappy-error-block').length === 0 || null)()", 20000);
+  check('re-running clears the previous highlight', true);
 } catch (err) {
   console.error('ERROR --', err.message);
   failures++;

@@ -1,5 +1,6 @@
 import type * as Blockly from 'blockly/core';
 import { FUNCTIONS_CATEGORY } from './functions';
+import { VARIABLES_CATEGORY } from './variables';
 
 const num = (value: number) => ({
   shadow: { type: 'math_number', fields: { NUM: value } },
@@ -36,6 +37,12 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
           extraState: { elseIfCount: 0, hasElse: true },
         },
         { kind: 'block', type: 'controls_whileUntil' },
+        {
+          kind: 'block',
+          type: 'controls_for',
+          inputs: { FROM: num(1), TO: num(10), BY: num(1) },
+        },
+        { kind: 'block', type: 'controls_forEach' },
         { kind: 'block', type: 'controls_flow_statements' },
       ],
     },
@@ -91,7 +98,8 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
       kind: 'category',
       name: 'Variables',
       categorystyle: 'variable_category',
-      custom: 'VARIABLE',
+      // Blockly's own flyout, plus the local-variable blocks.
+      custom: VARIABLES_CATEGORY,
     },
     {
       kind: 'category',
@@ -102,6 +110,9 @@ export const toolbox: Blockly.utils.toolbox.ToolboxDefinition = {
         { kind: 'block', type: 'lists_length' },
         { kind: 'block', type: 'lists_getIndex' },
         { kind: 'block', type: 'lists_setIndex' },
+        // Blockly's sub-list block is the slice: 1-based and inclusive, matching
+        // the other list blocks rather than Python's 0-based half-open indexing.
+        { kind: 'block', type: 'lists_getSublist' },
       ],
     },
     {

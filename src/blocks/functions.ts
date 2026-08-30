@@ -187,3 +187,59 @@ export function registerFunctionsCategory(workspace: Blockly.WorkspaceSvg) {
     { kind: 'block', type: 'procedures_ifreturn' },
   ]);
 }
+
+/**
+ * Blockly hoists `name = None` for every variable a workspace uses, and function
+ * parameters count as variables -- so `def greet(who)` also emitted a module
+ * level `who = None`. That line is pure noise in the code pane, which is the
+ * thing this app exists to show.
+ *
+ * Only parameters used nowhere outside a function definition are dropped. If the
+ * same name is also used at the top level it keeps its declaration, because
+ * there it really can be read before it is assigned.
+ */
+function parameterOnlyNames(workspace: Blockly.Workspace): Set<string> {
+  const [withoutReturn, withReturn] = Blockly.Procedures.allProcedures(workspace);
+  const names = new Set<string>();
+  for (const [, params] of [...withoutReturn, ...withReturn]) {
+    for (const param of params) names.add(param);
+  }
+  if (!names.size) return names;
+
+  for (const block of workspace.getAllBlocks(false)) {
+    if (isInsideProcedure(block)) continue;
+    for (const model of block.getVarModels?.() ?? []) names.delete(model.name);
+  }
+  return names;
+}
+
+function isInsideProcedure(block: Blockly.Block | null): boolean {
+  for (let current = block; current; current = current.getSurroundParent()) {
+    if (typeof (current as unknown as Partial<ProcedureDefBlock>).getProcedureDef === 'function') {
+      return true;
+    }
+  }
+  return false;
+}
+
+type GeneratorInternals = { definitions_: Record<string, string> };
+
+const baseInit = pythonGenerator.init.bind(pythonGenerator);
+pythonGenerator.init = function (workspace: Blockly.Workspace) {
+  baseInit(workspace);
+
+  const skip = parameterOnlyNames(workspace);
+  if (!skip.size) return;
+
+  const internals = pythonGenerator as unknown as GeneratorInternals;
+  const declarations = internals.definitions_['variables'];
+  if (!declarations) return;
+
+  // Compare against generated names: a variable may have been renamed to avoid
+  // colliding with a reserved word.
+  const generated = new Set([...skip].map((name) => pythonGenerator.getVariableName(name)));
+  internals.definitions_['variables'] = declarations
+    .split('\n')
+    .filter((line) => !generated.has(line.split(' = ')[0]))
+    .join('\n');
+};
