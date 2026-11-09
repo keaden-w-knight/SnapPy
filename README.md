@@ -9,7 +9,10 @@ It is aimed at anyone making the jump from blocks to text: students, classrooms,
 and self-teachers who want to *see* the code their blocks become instead of
 guessing at it.
 
-- **Try it in a browser** — nothing to install.
+### ▶ [Try it now at **snappy.keaden.dev**](https://snappy.keaden.dev) — nothing to install
+
+- **Use it in your browser** — [snappy.keaden.dev](https://snappy.keaden.dev),
+  no install, no sign-in.
 - **Download the desktop app** — runs on your own Python, with real files and
   any installed package.
 
@@ -96,8 +99,9 @@ Python's real `turtle` window.
 | Turtle | Built-in drawing stage | Python's real turtle window |
 | Speed | Fast enough for learning | Native |
 
-The browser version is the easiest way to start. The desktop app is for when you
-want your real Python, your real files, and full speed. (If you open the desktop
+The browser version at [snappy.keaden.dev](https://snappy.keaden.dev) is the
+easiest way to start. The desktop app is for when you want your real Python, your
+real files, and full speed. (If you open the desktop
 app without Python installed, it falls back to the built-in interpreter so it
 still works.)
 
